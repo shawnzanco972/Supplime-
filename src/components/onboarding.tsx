@@ -29,7 +29,7 @@ export function Onboarding() {
   }
 
   return (
-    <div className="mx-auto flex min-h-dvh w-full max-w-lg flex-col px-5 py-10 md:justify-center md:py-16">
+    <div className="mx-auto flex min-h-dvh w-full max-w-lg flex-col px-5 pt-[max(2.5rem,calc(env(safe-area-inset-top)+1.5rem))] pb-[max(2.5rem,calc(env(safe-area-inset-bottom)+1rem))] md:justify-center md:py-16">
       <p className="text-xs font-medium tracking-[0.18em] text-muted-foreground uppercase">
         Supplime
       </p>
