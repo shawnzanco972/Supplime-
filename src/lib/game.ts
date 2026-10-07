@@ -1,8 +1,17 @@
 import { ALL_FACTS } from "./knowledge";
+import { nextAsk, safetyDue } from "./advisor";
 import { journeyFor } from "./journey";
 import { activeStack } from "./protocol";
 import { dayAdherence, needsCheckIn } from "./stats";
-import type { BodyLog, Decision, DoseLog, EffectLog, Profile, StackItem } from "./types";
+import type {
+  BodyLog,
+  Decision,
+  DoseLog,
+  EffectLog,
+  Profile,
+  SafetyCheck,
+  StackItem,
+} from "./types";
 import { addDays, daysBetween, parseISODate, todayKey } from "./utils";
 
 /**
@@ -36,7 +45,33 @@ export const XP = {
   decision: 40,
   weeklyTarget: 75,
   bonus: 25,
+  history: 2,
+  safety: 10,
+  milestone: 15,
 } as const;
+
+/** Journey milestones (first signs, typical onset, dose review) you've reached. */
+export function milestonesReached(
+  state: Pick<State, "stack" | "logs" | "effects" | "decisions">,
+  today = todayKey(),
+) {
+  const out: { itemId: string; key: string; date: string; label: string; name: string }[] = [];
+  for (const item of state.stack) {
+    if (item.planned) continue;
+    const j = journeyFor({
+      item,
+      logs: state.logs,
+      effects: state.effects,
+      decisions: state.decisions,
+      today,
+    });
+    for (const m of j.milestones) {
+      if (m.key === "start" || m.key === "evaluate" || !m.reached) continue;
+      out.push({ itemId: item.id, key: m.key, date: m.date, label: m.label, name: item.name });
+    }
+  }
+  return out;
+}
 
 const LEVELS = [
   { xp: 0, name: "Seed" },
@@ -85,7 +120,8 @@ type State = {
   effects: EffectLog[];
   body: BodyLog[];
   decisions: Decision[];
-  profile: Pick<Profile, "weeklyTarget" | "facts" | "joinedAt">;
+  checks?: SafetyCheck[];
+  profile: Pick<Profile, "weeklyTarget" | "facts" | "joinedAt" | "installedAt">;
 };
 
 export type DayOutcome = "success" | "shielded" | "broken" | "open" | "empty";
@@ -172,6 +208,10 @@ export function weekProgress(state: Pick<State, "stack" | "logs" | "profile">, t
 export function totalXp(state: State, today = todayKey()) {
   let xp = 0;
   for (const log of state.logs) {
+    if (log.backfill) {
+      if (log.status === "taken") xp += XP.history;
+      continue;
+    }
     if (log.status === "taken") xp += log.late ? XP.lateDose : XP.dose;
     else if ((log.status === "skipped" || log.status === "missed") && log.reason)
       xp += XP.honestMiss;
@@ -179,9 +219,13 @@ export function totalXp(state: State, today = todayKey()) {
   xp += state.effects.length * XP.checkIn;
   xp += new Set(state.body.map((b) => b.date)).size * XP.bodyLog;
   xp += state.decisions.length * XP.decision;
+  xp += (state.checks?.length ?? 0) * XP.safety;
+  xp += milestonesReached(state, today).length * XP.milestone;
   const streak = streakWithShields(state, today);
+  const installed = state.profile.installedAt ?? state.profile.joinedAt ?? "";
   for (const d of streak.days) {
-    if (d.outcome !== "success") continue;
+    // Days rebuilt from your history earn the small history XP per dose, not full-day XP.
+    if (d.outcome !== "success" || d.date < installed) continue;
     xp += XP.fullDay;
     if (bonusDay(d.date)) xp += XP.bonus;
   }
@@ -209,7 +253,8 @@ export type Action =
   | { kind: "check-in"; itemId: string }
   | { kind: "evaluate"; itemId: string }
   | { kind: "body" }
-  | { kind: "insight" };
+  | { kind: "insight" }
+  | { kind: "safety"; itemId: string };
 
 /** Three small, concrete things for today. */
 export function todaysQuests(state: State & { profile: Profile }, today = todayKey()): Quest[] {
@@ -238,6 +283,7 @@ export function todaysQuests(state: State & { profile: Profile }, today = todayK
     )
     .find((j) => j.evaluateDue);
   const checkIn = active.find((item) => needsCheckIn(item, state.effects, today));
+  const safety = active.find((item) => safetyDue(item, state.checks ?? [], today));
   const checkedToday = state.effects.find((e) => e.date === today);
   if (due) {
     quests.push({
@@ -248,11 +294,20 @@ export function todaysQuests(state: State & { profile: Profile }, today = todayK
       done: false,
       action: { kind: "evaluate", itemId: due.item.id },
     });
+  } else if (safety) {
+    quests.push({
+      id: "safety",
+      title: `Quick safety check: ${safety.name}`,
+      detail: "Any side effects lately? Takes 5 seconds.",
+      xp: XP.safety,
+      done: false,
+      action: { kind: "safety", itemId: safety.id },
+    });
   } else if (checkIn) {
     quests.push({
       id: "check-in",
-      title: `How is ${checkIn.name} feeling?`,
-      detail: "A 2-second check-in shows when it really kicks in.",
+      title: `${checkIn.name}: ${nextAsk(checkIn, state.effects).question}`,
+      detail: "One tap. It's how Supplime knows when to suggest a dose change.",
       xp: XP.checkIn,
       done: false,
       action: { kind: "check-in", itemId: checkIn.id },

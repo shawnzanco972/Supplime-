@@ -564,3 +564,190 @@ function Row({ label, hint, children }: { label: string; hint?: string; children
     </div>
   );
 }
+
+/** Pick the food situations you're fine with (more than one allowed). */
+export function FoodOkPicker({
+  value,
+  onChange,
+  allowed,
+}: {
+  value: FoodTiming[];
+  onChange: (v: FoodTiming[]) => void;
+  allowed?: FoodTiming[];
+}) {
+  const opts: FoodTiming[] = ["empty", "with", "after"];
+  return (
+    <div className="flex flex-wrap gap-2">
+      {opts.map((t) => {
+        const on = value.includes(t) || value.includes("any");
+        const discouraged = allowed && !allowed.includes(t) && !allowed.includes("any");
+        return (
+          <Chip
+            key={t}
+            on={on}
+            className={cn(discouraged && !on && "opacity-50")}
+            onClick={() => {
+              const base = value.includes("any") ? opts : value;
+              const next = base.includes(t) ? base.filter((x) => x !== t) : [...base, t];
+              if (next.length) onChange(next.length === opts.length ? ["any"] : next);
+            }}
+          >
+            {foodLabel(t)}
+            {discouraged ? " ·  not ideal" : ""}
+          </Chip>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Windows with the guide's advice: best ★, fine, or not ideal. */
+export function SlotHintPicker({
+  value,
+  onChange,
+  times,
+  best,
+  avoid,
+}: {
+  value: SlotId[];
+  onChange: (v: SlotId[]) => void;
+  times: SlotTimes;
+  best: SlotId[];
+  avoid: SlotId[];
+}) {
+  return (
+    <div className="grid grid-cols-2 gap-2">
+      {SLOTS.map((s) => {
+        const on = value.includes(s.id);
+        const tag = best.includes(s.id) ? "Best" : avoid.includes(s.id) ? "Not ideal" : "Fine";
+        return (
+          <button
+            key={s.id}
+            type="button"
+            aria-pressed={on}
+            onClick={() => {
+              const next = on ? value.filter((x) => x !== s.id) : [...value, s.id];
+              if (next.length) onChange(next);
+            }}
+            className={cn(
+              "rounded-xl px-3 py-2 text-left transition-colors",
+              on ? "bg-primary text-primary-foreground" : "bg-secondary text-secondary-foreground",
+              !on && tag === "Not ideal" && "opacity-55",
+            )}
+          >
+            <span className="flex items-center justify-between gap-2 text-sm font-medium">
+              {s.label}
+              <span
+                className={cn(
+                  "rounded-full px-1.5 text-[10px] font-semibold uppercase",
+                  tag === "Best" &&
+                    (on ? "bg-primary-foreground/20" : "bg-accent text-accent-foreground"),
+                  tag === "Not ideal" && "text-warn",
+                  tag === "Fine" && "opacity-60",
+                )}
+              >
+                {tag}
+              </span>
+            </span>
+            <span
+              className={cn(
+                "block text-xs",
+                on ? "text-primary-foreground/80" : "text-muted-foreground",
+              )}
+            >
+              {formatClock(times[s.id])}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/** − 1 capsule + */
+export function Stepper({
+  value,
+  onChange,
+  min = 1,
+  max = 12,
+  label,
+}: {
+  value: number;
+  onChange: (n: number) => void;
+  min?: number;
+  max?: number;
+  label: string;
+}) {
+  return (
+    <div className="flex items-center gap-3">
+      <button
+        type="button"
+        aria-label="Fewer"
+        disabled={value <= min}
+        onClick={() => onChange(value - 1)}
+        className="flex size-11 items-center justify-center rounded-xl bg-secondary text-xl font-medium disabled:opacity-40"
+      >
+        −
+      </button>
+      <span className="min-w-24 text-center">
+        <span className="block font-display text-2xl tabular-nums">{value}</span>
+        <span className="block text-xs text-muted-foreground">{label}</span>
+      </span>
+      <button
+        type="button"
+        aria-label="More"
+        disabled={value >= max}
+        onClick={() => onChange(value + 1)}
+        className="flex size-11 items-center justify-center rounded-xl bg-secondary text-xl font-medium disabled:opacity-40"
+      >
+        +
+      </button>
+    </div>
+  );
+}
+
+export type Consistency = "every" | "most" | "some";
+
+export function ConsistencyPicker({
+  value,
+  onChange,
+}: {
+  value: Consistency;
+  onChange: (v: Consistency) => void;
+}) {
+  return (
+    <div className="flex flex-wrap gap-2">
+      {(
+        [
+          ["every", "Every day"],
+          ["most", "Most days"],
+          ["some", "Some days"],
+        ] as const
+      ).map(([k, label]) => (
+        <Chip key={k} on={value === k} onClick={() => onChange(k)}>
+          {label}
+        </Chip>
+      ))}
+    </div>
+  );
+}
+
+export const REORDER_LEADS = [7, 10, 14, 21];
+
+export function ReorderLeadPicker({
+  value,
+  onChange,
+}: {
+  value: number;
+  onChange: (n: number) => void;
+}) {
+  return (
+    <div className="flex flex-wrap gap-2">
+      {REORDER_LEADS.map((n) => (
+        <Chip key={n} on={value === n} onClick={() => onChange(n)}>
+          {n === 7 ? "1 week" : n === 14 ? "2 weeks" : n === 21 ? "3 weeks" : `${n} days`} before
+        </Chip>
+      ))}
+    </div>
+  );
+}

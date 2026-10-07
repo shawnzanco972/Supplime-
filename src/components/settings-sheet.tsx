@@ -1,13 +1,22 @@
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Chip, HabitsForm, RhythmForm, Section, TimeInput } from "@/components/fields";
+import {
+  Chip,
+  Field,
+  HabitsForm,
+  ReorderLeadPicker,
+  RhythmForm,
+  Section,
+  TimeInput,
+} from "@/components/fields";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Confirm, Screen } from "@/components/ui/screen";
 import { Switch } from "@/components/ui/switch";
 import { exportBackup, importBackup } from "@/lib/backup";
-import { DEFAULT_COACH_MODEL } from "@/lib/coach";
+import { DEFAULT_COACH_MODEL, DEFAULT_GEMINI_MODEL } from "@/lib/coach";
+import { HealthConnect } from "@/components/health-connect";
 import { useNav } from "@/lib/nav";
 import {
   exactAlarmsAllowed,
@@ -31,6 +40,7 @@ export function SettingsScreen() {
   const setProfile = useSupplime((s) => s.setProfile);
   const setRhythm = useSupplime((s) => s.setRhythm);
   const resetAll = useSupplime((s) => s.resetAll);
+  const setReorderLead = useSupplime((s) => s.setReorderLead);
   const [exact, setExact] = useState(true);
   const [confirmReset, setConfirmReset] = useState(false);
   const [fineTune, setFineTune] = useState(false);
@@ -86,6 +96,13 @@ export function SettingsScreen() {
 
         <Section title="Habits">
           <HabitsForm value={profile.habits} onChange={(habits) => setProfile({ habits })} />
+        </Section>
+
+        <Section
+          title="Reorder reminders"
+          hint="How early to warn you before a bottle runs out — leave time for shipping."
+        >
+          <ReorderLeadPicker value={profile.reorderLeadDays} onChange={setReorderLead} />
         </Section>
 
         <Section
@@ -218,26 +235,51 @@ export function SettingsScreen() {
         </Section>
 
         <Section
-          title="Coach (optional)"
-          hint="Your own xAI key from console.x.ai. Stored only on this phone, never in backups."
+          title="Coach"
+          hint="By default the coach sends a briefing to your Claude or Gemini app (free with your subscription). API keys are optional, stored only on this phone and never put in backups."
         >
-          <Input
-            type="password"
-            autoComplete="off"
-            placeholder="xai-…"
-            value={profile.coachKey ?? ""}
-            onChange={(e) => setProfile({ coachKey: e.target.value.trim() || undefined })}
-          />
+          <Field label="Gemini API key (free tier)" hint="From aistudio.google.com → Get API key.">
+            <Input
+              type="password"
+              autoComplete="off"
+              placeholder="AIza…"
+              value={profile.geminiKey ?? ""}
+              onChange={(e) =>
+                setProfile({
+                  geminiKey: e.target.value.trim() || undefined,
+                  coachProvider: e.target.value.trim() ? "gemini" : profile.coachProvider,
+                })
+              }
+            />
+          </Field>
+          <Field label="xAI (Grok) key">
+            <Input
+              type="password"
+              autoComplete="off"
+              placeholder="xai-…"
+              value={profile.coachKey ?? ""}
+              onChange={(e) => setProfile({ coachKey: e.target.value.trim() || undefined })}
+            />
+          </Field>
           <div className="flex items-center justify-between gap-3">
-            <Label htmlFor="coach-model">Model</Label>
+            <Label htmlFor="coach-model">Model (optional)</Label>
             <Input
               id="coach-model"
-              className="w-40"
-              placeholder={DEFAULT_COACH_MODEL}
+              className="w-44"
+              placeholder={
+                profile.coachProvider === "xai" ? DEFAULT_COACH_MODEL : DEFAULT_GEMINI_MODEL
+              }
               value={profile.coachModel ?? ""}
               onChange={(e) => setProfile({ coachModel: e.target.value.trim() || undefined })}
             />
           </div>
+        </Section>
+
+        <Section
+          title="Fitbit / Google Health"
+          hint="Reads sleep, resting heart rate, HRV and steps through Health Connect. Nothing leaves your phone."
+        >
+          <HealthConnect />
         </Section>
 
         <Button

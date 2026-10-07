@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { CATALOG_BY_ID } from "./catalog";
+import { backfillLogs, type BackfillPattern } from "./advisor";
 import { defaultRhythm, logicalDate, slotTimesFromRhythm } from "./protocol";
 import { earnedBadges } from "./stats";
 import type {
@@ -18,6 +19,7 @@ import type {
   GoalId,
   Habits,
   ItemOverrides,
+  ItemProduct,
   MissReason,
   PersistedData,
   Profile,
@@ -51,6 +53,8 @@ const defaultProfile = (): Profile => {
     habits: defaultHabits(),
     weeklyTarget: 0.85,
     facts: [],
+    reorderLeadDays: 14,
+    coachProvider: "share",
   };
 };
 
@@ -66,6 +70,16 @@ export type NewItem = {
   servingLabel?: string;
   overrides?: ItemOverrides;
   source?: StackItem["source"];
+  /** A real bottle: dose becomes pills × strength. */
+  product?: ItemProduct;
+  /** Pills per dose (with a product). */
+  units?: number;
+  /** Owned but not started yet. */
+  planned?: boolean;
+  /** Already taking it since `startedAt`: how consistently. */
+  backfill?: BackfillPattern;
+  /** Pills left in the current bottle, if not full. */
+  remaining?: number;
 };
 
 /** An edit made in the item editor, saved in one go. */
@@ -85,6 +99,9 @@ export type ItemDraft = Partial<
     | "paused"
     | "overrides"
     | "servingLabel"
+    | "product"
+    | "foodOk"
+    | "reorderCustom"
   >
 > & {
   amount?: number;
@@ -106,6 +123,10 @@ type SupplimeStore = PersistedData & {
   }) => void;
   addItem: (input: NewItem) => string | null;
   addFromCatalog: (catalogId: string) => string | null;
+  startPlanned: (id: string) => void;
+  logSafety: (itemId: string, symptoms: string[]) => void;
+  setReorderLead: (days: number) => void;
+  addCoachNote: (text: string, source: string) => void;
   saveItem: (id: string, draft: ItemDraft) => void;
   updateItem: (id: string, patch: Partial<StackItem>) => void;
   changeDose: (id: string, amount: number, unit?: string, date?: string) => void;
@@ -131,7 +152,7 @@ type SupplimeStore = PersistedData & {
   logEffect: (
     itemId: string,
     rating: EffectRating,
-    opts?: { note?: string; sideEffects?: boolean; date?: string },
+    opts?: { note?: string; sideEffects?: boolean; date?: string; area?: string },
   ) => void;
   removeEffect: (id: string) => void;
   decide: (
@@ -161,10 +182,14 @@ function newItem(input: NewItem): StackItem | null {
   const def = input.catalogId ? CATALOG_BY_ID[input.catalogId] : undefined;
   const name = input.name?.trim() || def?.name;
   if (!name) return null;
-  const amount = input.amount ?? def?.defaultAmount ?? 1;
+  const units = Math.max(1, input.units ?? 1);
+  const amount = input.product
+    ? Math.round(input.product.dosePerUnit * units * 1000) / 1000
+    : (input.amount ?? def?.defaultAmount ?? 1);
   const unit = input.unit ?? def?.unit ?? "mg";
   const startedAt = input.startedAt ?? appToday();
   const count = input.servingsPerContainer ?? 60;
+  const lead = useSupplime.getState().profile.reorderLeadDays ?? 14;
   return {
     id: uid(),
     catalogId: def?.id ?? null,
@@ -174,17 +199,31 @@ function newItem(input: NewItem): StackItem | null {
     foodTiming: input.foodTiming ?? def?.foodTiming ?? "any",
     slots: input.slots?.length ? input.slots : def ? [...def.preferredSlots] : ["breakfast"],
     notes: "",
-    servingsRemaining: count,
+    servingsRemaining: input.remaining ?? count,
     servingsPerContainer: count,
-    servingsPerDose: 1,
-    reorderAtDays: 10,
+    servingsPerDose: input.product ? units : 1,
+    reorderAtDays: lead,
     startedAt,
     paused: false,
     doseHistory: [{ date: startedAt, amount, unit }],
     overrides: input.overrides,
     source: input.source,
     servingLabel: input.servingLabel,
+    product: input.product,
+    planned: input.planned || undefined,
   };
+}
+
+/** Add an item plus its reconstructed history, if any. */
+function addWithHistory(input: NewItem): { item: StackItem; logs: DoseLog[] } | null {
+  const item = newItem(input);
+  if (!item) return null;
+  const today = appToday();
+  const logs =
+    input.backfill && !input.planned && item.startedAt < today
+      ? backfillLogs(item, item.startedAt, today, input.backfill)
+      : [];
+  return { item, logs };
 }
 
 /** Fill gaps in data from older versions or a hand-edited backup. */
@@ -219,6 +258,8 @@ export function normalizeData(raw: Partial<PersistedData>): PersistedData {
       slotTimes: { ...base.slotTimes, ...(old?.slotTimes ?? {}) },
       facts: old?.facts ?? [],
       weeklyTarget: old?.weeklyTarget ?? base.weeklyTarget,
+      reorderLeadDays: old?.reorderLeadDays ?? base.reorderLeadDays,
+      coachProvider: old?.coachProvider ?? (old?.coachKey ? "xai" : "share"),
       why: old?.why ?? "",
       joinedAt: old?.joinedAt ?? ([...(raw.logs ?? [])].map((l) => l.date).sort()[0] || undefined),
     },
@@ -228,6 +269,7 @@ export function normalizeData(raw: Partial<PersistedData>): PersistedData {
     effects: raw.effects ?? [],
     days: raw.days ?? [],
     decisions: raw.decisions ?? [],
+    checks: raw.checks ?? [],
   };
 }
 
@@ -239,6 +281,9 @@ function withBadges(state: PersistedData & { refilled?: boolean }): BadgeId[] {
     effects: state.effects,
     already: state.profile.badges,
     refilled: state.refilled,
+    checks: state.checks,
+    decisions: state.decisions,
+    linked: !!state.profile.healthSync?.enabled,
   });
 }
 
@@ -273,6 +318,7 @@ const empty = (): PersistedData => ({
   effects: [],
   days: [],
   decisions: [],
+  checks: [],
 });
 
 export const useSupplime = create<SupplimeStore>()(
@@ -298,10 +344,22 @@ export const useSupplime = create<SupplimeStore>()(
             notifications,
             onboarded: true,
             joinedAt: appToday(),
+            installedAt: appToday(),
           };
           set({ ...empty(), profile });
-          const stack = items.map(newItem).filter((i): i is StackItem => !!i);
-          set({ stack });
+          const added = items.map(addWithHistory).filter((x): x is NonNullable<typeof x> => !!x);
+          const logs = added.flatMap((a) => a.logs);
+          const earliest = logs.map((l) => l.date).sort()[0];
+          set({
+            stack: added.map((a) => a.item),
+            logs,
+            profile:
+              earliest && earliest < profile.joinedAt!
+                ? { ...profile, joinedAt: earliest }
+                : profile,
+          });
+          const state = get();
+          set({ profile: { ...state.profile, badges: withBadges(state) } });
         },
 
         addItem: (input) => {
@@ -311,16 +369,70 @@ export const useSupplime = create<SupplimeStore>()(
             );
             if (existing) return existing.id;
           }
-          const item = newItem(input);
-          if (!item) return null;
-          set({ stack: [...get().stack, item] });
-          return item.id;
+          const added = addWithHistory(input);
+          if (!added) return null;
+          const state = get();
+          const earliest = added.logs[0]?.date;
+          const joinedAt = state.profile.joinedAt;
+          set({
+            stack: [...state.stack, added.item],
+            logs: [...state.logs, ...added.logs],
+            profile:
+              earliest && joinedAt && earliest < joinedAt
+                ? { ...state.profile, joinedAt: earliest }
+                : state.profile,
+          });
+          return added.item.id;
         },
         addFromCatalog: (catalogId) => get().addItem({ catalogId }),
 
+        startPlanned: (id) => {
+          const today = appToday();
+          mapItem(id, (item) => ({
+            ...item,
+            planned: undefined,
+            startedAt: today,
+            doseHistory: [{ date: today, amount: item.amount, unit: item.unit }],
+          }));
+        },
+
+        logSafety: (itemId, symptoms) => {
+          const date = appToday();
+          const checks = [
+            ...get().checks.filter((c) => !(c.itemId === itemId && c.date === date)),
+            { id: uid(), itemId, date, symptoms },
+          ];
+          set({ checks });
+          const state = get();
+          set({ profile: { ...state.profile, badges: withBadges(state) } });
+        },
+
+        setReorderLead: (days) => {
+          const state = get();
+          set({
+            profile: { ...state.profile, reorderLeadDays: days },
+            stack: state.stack.map((i) => (i.reorderCustom ? i : { ...i, reorderAtDays: days })),
+          });
+        },
+
+        addCoachNote: (text, source) => {
+          const profile = get().profile;
+          const notes = [
+            ...(profile.coachNotes ?? []),
+            { date: appToday(), text: text.trim(), source },
+          ].slice(-20);
+          set({ profile: { ...profile, coachNotes: notes } });
+        },
+
         saveItem: (id, draft) => {
-          const { amount, doseChange, startedAt, ...rest } = draft;
+          const { doseChange, startedAt, ...rest } = draft;
+          let amount = draft.amount;
           mapItem(id, (item) => {
+            const product = rest.product ?? item.product;
+            // With a real bottle, the dose is pills: keep amount in step with them.
+            if (product && rest.servingsPerDose && amount === undefined) {
+              amount = Math.round(product.dosePerUnit * rest.servingsPerDose * 1000) / 1000;
+            }
             let next = normalizeItem({ ...item, ...rest, id: item.id });
             if (startedAt && startedAt !== item.startedAt) next = applyStartDate(next, startedAt);
             if (rest.unit && rest.unit !== item.unit) {
@@ -332,12 +444,13 @@ export const useSupplime = create<SupplimeStore>()(
               };
             }
             if (amount !== undefined && amount > 0 && amount !== item.amount) {
+              const newAmount = amount;
               if (doseChange === "correction") {
                 next = {
                   ...next,
-                  amount,
+                  amount: newAmount,
                   doseHistory: next.doseHistory.map((s, i, all) =>
-                    i === all.length - 1 ? { ...s, amount } : s,
+                    i === all.length - 1 ? { ...s, amount: newAmount } : s,
                   ),
                 };
               } else {
@@ -456,7 +569,13 @@ export const useSupplime = create<SupplimeStore>()(
         logEffect: (itemId, rating, opts) => {
           const state = get();
           const date = opts?.date ?? appToday();
-          const prev = state.effects.find((e) => e.itemId === itemId && e.date === date);
+          const area = opts?.area;
+          const prev = state.effects.find(
+            (e) =>
+              e.itemId === itemId &&
+              e.date === date &&
+              (area === undefined || (e.area ?? area) === area),
+          );
           const effects = [
             ...state.effects.filter((e) => e !== prev),
             {
@@ -466,6 +585,7 @@ export const useSupplime = create<SupplimeStore>()(
               rating,
               note: opts?.note?.trim() || prev?.note,
               sideEffects: opts?.sideEffects ?? prev?.sideEffects,
+              area: area ?? prev?.area,
             },
           ];
           set({
@@ -553,7 +673,7 @@ export const useSupplime = create<SupplimeStore>()(
     },
     {
       name: "supplime-v1",
-      version: 3,
+      version: 4,
       storage: createJSONStorage(() => localStorage),
       migrate: (persisted) => normalizeData((persisted ?? {}) as Partial<PersistedData>),
       merge: (persisted, current) => ({
@@ -569,21 +689,23 @@ export const useSupplime = create<SupplimeStore>()(
         effects: state.effects,
         days: state.days,
         decisions: state.decisions,
+        checks: state.checks,
       }),
     },
   ),
 );
 
 export function exportData(): PersistedData {
-  const { profile, stack, logs, body, effects, days, decisions } = useSupplime.getState();
-  // Never write the coach key into a backup file.
+  const { profile, stack, logs, body, effects, days, decisions, checks } = useSupplime.getState();
+  // Never write API keys into a backup file.
   return {
-    profile: { ...profile, coachKey: undefined },
+    profile: { ...profile, coachKey: undefined, geminiKey: undefined },
     stack,
     logs,
     body,
     effects,
     days,
     decisions,
+    checks,
   };
 }

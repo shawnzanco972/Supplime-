@@ -9,7 +9,9 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Sheet } from "@/components/ui/screen";
 import { Textarea } from "@/components/ui/textarea";
-import { askCoach } from "@/lib/coach";
+import { advise, beforeAfter, fmtDose } from "@/lib/advisor";
+import { askGemini, askGrok, buildCoachPrompt, shareToAssistant } from "@/lib/coach";
+import { iconFor } from "@/components/product-picker";
 import { gameSummary, XP } from "@/lib/game";
 import { journeyFor, PHASE_COPY, type Journey } from "@/lib/journey";
 import { ALL_FACTS, nextStep } from "@/lib/knowledge";
@@ -32,7 +34,7 @@ export function JourneyView() {
   const open = useNav((s) => s.open);
   const today = appToday();
   const game = useMemo(() => gameSummary(state, today), [state, today]);
-  const active = stack.filter((i) => !i.archived && !i.paused);
+  const active = stack.filter((i) => !i.archived && !i.paused && !i.planned);
   const past = stack.filter((i) => i.archived);
   const journeys = active
     .map((item) => journeyFor({ item, logs, effects, decisions, today }))
@@ -55,6 +57,8 @@ export function JourneyView() {
       <LevelCard game={game} />
       <StreakDots days={game.lastDays} />
 
+      <WhatsNext />
+
       <section className="space-y-3">
         <div>
           <h2 className="font-display text-xl tracking-tight">How long until it works</h2>
@@ -75,6 +79,8 @@ export function JourneyView() {
           />
         ))}
       </section>
+
+      <Findings />
 
       <FieldNotes />
 
@@ -199,6 +205,8 @@ export function JourneyCard({
   onEvaluate: () => void;
   onOpen: () => void;
 }) {
+  const body = useSupplime((s) => s.body);
+  const deltas = beforeAfter(j.item, body, appToday());
   const phase = PHASE_COPY[j.phase];
   const span = Math.max(...j.milestones.map((m) => m.day), j.day, j.felt?.day ?? 0) * 1.05;
   const pct = (d: number) => `${Math.min(100, (d / span) * 100)}%`;
@@ -297,6 +305,29 @@ export function JourneyCard({
             <Lock className="size-3" /> Dose change unlocks {formatShortDate(j.doseReviewDate)} (
             {p.minDaysBeforeIncrease} days at one dose)
           </p>
+        )}
+        {deltas.length > 0 && (
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {deltas.map((d) => (
+              <span
+                key={d.metric}
+                className={cn(
+                  "rounded-lg px-2 py-1 text-xs",
+                  d.better
+                    ? "bg-accent text-accent-foreground"
+                    : "bg-secondary text-muted-foreground",
+                )}
+              >
+                {d.metric === "sleepHours"
+                  ? "Sleep"
+                  : d.metric === "restingHr"
+                    ? "Resting HR"
+                    : "HRV"}{" "}
+                {d.before} → {d.after}
+                {d.metric === "sleepHours" ? " h" : d.metric === "hrv" ? " ms" : ""}
+              </span>
+            ))}
+          </div>
         )}
         {daysOfStock(j.item) <= j.item.reorderAtDays && (
           <p className="mt-1 text-xs text-warn">
@@ -533,98 +564,314 @@ function FieldNotes() {
 
 function Coach() {
   const state = useSupplime();
-  const { stack, logs, effects, decisions, profile, body, setCoach } = state;
+  const { profile, addCoachNote, setProfile } = state;
   const [busy, setBusy] = useState(false);
+  const [reply, setReply] = useState("");
+  const [showPaste, setShowPaste] = useState(false);
   const today = appToday();
+  const provider = profile.coachProvider ?? "share";
 
   async function run() {
+    const prompt = buildCoachPrompt(state, today);
+    if (provider === "share") {
+      try {
+        const how = await shareToAssistant(prompt);
+        setShowPaste(true);
+        toast(
+          how === "shared" ? "Pick Claude or Gemini" : "Copied — paste it into Claude or Gemini",
+          {
+            description: "Then paste the answer back here to keep it.",
+          },
+        );
+      } catch {
+        /* share sheet dismissed */
+      }
+      return;
+    }
     setBusy(true);
     try {
-      const avgs = bodyAverages(body, 7, today);
-      const week = gameSummary(state, today).week;
-      const result = await askCoach(
-        {
-          name: profile.displayName,
-          goals: profile.goals,
-          stack: stack
-            .filter((i) => !i.archived && !i.paused)
-            .map((item) => {
-              const j = journeyFor({ item, logs, effects, decisions, today });
-              return {
-                name: item.name,
-                amount: item.amount,
-                unit: item.unit,
-                foodTiming: item.foodTiming,
-                slots: item.slots,
-                daysOn: j.day,
-                daysAtCurrentDose: j.atDose,
-                daysActuallyTaken: j.takenDays,
-                doseHistory: item.doseHistory,
-                effectCheckIns: effectHistory(item, effects).map((e) => ({
-                  date: e.date,
-                  rating: EFFECT_COPY[e.rating],
-                  note: e.note,
-                })),
-                daysLeft: daysOfStock(item),
-              };
-            }),
-          adherence7: week.rate,
-          streak: gameSummary(state, today).streak,
-          body: {
-            sleepHours: avgs.sleepHours,
-            sleepScore: avgs.sleepScore,
-            restingHr: avgs.restingHr,
-            hrv: avgs.hrv,
-            energy: avgs.energy,
-            mood: avgs.mood,
-            focus: avgs.focus,
-          },
-        },
-        profile.coachKey ?? "",
-        profile.coachModel || undefined,
-      );
-      if (!result.ok) toast.error(result.error);
-      else setCoach(result.result);
+      const text =
+        provider === "gemini"
+          ? await askGemini(prompt, profile.geminiKey ?? "", profile.coachModel || undefined)
+          : await askGrok(prompt, profile.coachKey ?? "", profile.coachModel || undefined);
+      addCoachNote(text, provider === "gemini" ? "Gemini" : "Grok");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Coach is unavailable right now.");
     } finally {
       setBusy(false);
     }
   }
 
+  const notes = [...(profile.coachNotes ?? [])].reverse();
+  const needsKey =
+    (provider === "gemini" && !profile.geminiKey) || (provider === "xai" && !profile.coachKey);
   return (
     <section className="rounded-2xl bg-card p-4 shadow-[var(--shadow-border)]">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h2 className="font-display text-xl tracking-tight">Coach</h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            A second opinion on your timing, doses and gaps. Not a prescription.
-          </p>
-        </div>
-        <Button size="sm" onClick={run} disabled={busy || stack.length === 0 || !profile.coachKey}>
-          {busy ? "Reading…" : "Ask"}
-        </Button>
+      <h2 className="font-display text-xl tracking-tight">Coach</h2>
+      <p className="mt-1 text-sm text-muted-foreground">
+        Supplime writes a full briefing — your stack, doses, consistency, check-ins, side effects
+        and wearable data — and asks for timing, dose, next-step and safety advice.
+      </p>
+      <div className="mt-3 grid grid-cols-3 gap-1 rounded-xl bg-secondary p-1">
+        {(
+          [
+            ["share", "Claude / Gemini app"],
+            ["gemini", "Gemini key"],
+            ["xai", "Grok key"],
+          ] as const
+        ).map(([k, label]) => (
+          <button
+            key={k}
+            type="button"
+            onClick={() => setProfile({ coachProvider: k })}
+            className={cn(
+              "min-h-10 rounded-lg px-1 text-xs font-medium",
+              provider === k ? "bg-card shadow-sm" : "text-muted-foreground",
+            )}
+          >
+            {label}
+          </button>
+        ))}
       </div>
-      {!profile.coachKey && (
-        <p className="mt-3 text-xs text-muted-foreground">
-          Optional. Add your own xAI (Grok) API key in Settings to turn this on.
-        </p>
+      <p className="mt-2 text-xs text-muted-foreground">
+        {provider === "share"
+          ? "Free with your Claude or Gemini subscription: the briefing opens in the app you pick."
+          : provider === "gemini"
+            ? "Gemini's free API tier — get a key at aistudio.google.com and add it in Settings."
+            : "Your own xAI key, added in Settings."}
+      </p>
+      <Button
+        className="mt-3 w-full"
+        onClick={run}
+        disabled={busy || needsKey || state.stack.length === 0}
+      >
+        {busy ? "Asking…" : provider === "share" ? "Send my briefing" : "Ask now"}
+      </Button>
+      {needsKey && <p className="mt-2 text-xs text-warn">Add the key in Settings first.</p>}
+      {(showPaste || provider === "share") && (
+        <div className="mt-3 space-y-2">
+          <Textarea
+            value={reply}
+            onChange={(e) => setReply(e.target.value)}
+            placeholder="Paste the answer here to keep it in your journey"
+          />
+          <Button
+            variant="outline"
+            className="w-full"
+            disabled={!reply.trim()}
+            onClick={() => {
+              addCoachNote(reply, "Claude / Gemini");
+              setReply("");
+              toast("Saved to your coach notes");
+            }}
+          >
+            Save answer
+          </Button>
+        </div>
       )}
-      {profile.lastCoach && (
-        <div className="mt-4 space-y-3 text-sm">
-          <p>{profile.lastCoach.summary}</p>
-          {[...profile.lastCoach.timing, ...profile.lastCoach.dosage].map((t) => (
-            <p key={t} className="text-muted-foreground">
-              {t}
-            </p>
-          ))}
-          {profile.lastCoach.ideas.map((idea) => (
-            <div key={idea.name}>
-              <p className="font-medium">{idea.name}</p>
-              <p className="text-muted-foreground">
-                {idea.why} {idea.caution}
-              </p>
-            </div>
+      {notes.length > 0 && (
+        <div className="mt-4 space-y-3">
+          {notes.slice(0, 3).map((n, i) => (
+            <details key={i} open={i === 0} className="rounded-xl bg-secondary px-3 py-2">
+              <summary className="cursor-pointer text-xs text-muted-foreground">
+                {formatShortDate(n.date)} · {n.source}
+              </summary>
+              <p className="mt-2 text-sm whitespace-pre-wrap">{n.text}</p>
+            </details>
           ))}
         </div>
+      )}
+    </section>
+  );
+}
+
+function WhatsNext() {
+  const state = useSupplime();
+  const open = useNav((s) => s.open);
+  const today = appToday();
+  const a = advise({ ...state, today });
+  const startPlanned = state.startPlanned;
+  const nothing =
+    !a.planned.length && !a.increases.length && !a.reconsider.length && !a.ideas.length;
+  if (nothing) return null;
+  return (
+    <section className="space-y-3">
+      <div>
+        <h2 className="font-display text-xl tracking-tight">What's next</h2>
+        <p className="mt-1 text-sm text-muted-foreground">
+          {a.slotOpen
+            ? "Your next experiment slot is open."
+            : `Next experiment slot opens ${formatShortDate(a.slotOpensOn)}.`}{" "}
+          {a.slotReason}
+        </p>
+      </div>
+
+      {a.planned.map((item) => (
+        <div key={item.id} className="rounded-2xl bg-primary p-4 text-primary-foreground">
+          <p className="text-xs tracking-wide uppercase opacity-80">In your cabinet</p>
+          <p className="mt-1 font-display text-lg">Start {item.name}</p>
+          <p className="mt-1 text-sm opacity-85">
+            {a.slotOpen
+              ? "You already own it — it's the obvious next experiment. Start it alone so you can tell what it does."
+              : `Wait until ${formatShortDate(a.slotOpensOn)} so its effect isn't mixed up with the last change.`}
+          </p>
+          <Button
+            variant="secondary"
+            className="mt-3"
+            disabled={!a.slotOpen}
+            onClick={() => {
+              startPlanned(item.id);
+              toast(`${item.name}: day 1`, { description: "One new thing at a time — nice." });
+            }}
+          >
+            {a.slotOpen ? (
+              "Start it today"
+            ) : (
+              <>
+                <Lock className="size-4" /> Locked until {formatShortDate(a.slotOpensOn)}
+              </>
+            )}
+          </Button>
+        </div>
+      ))}
+
+      {a.increases.map((x) => (
+        <button
+          type="button"
+          key={x.item.id}
+          onClick={() => open({ kind: "evaluate", itemId: x.item.id })}
+          className="w-full rounded-2xl bg-card p-4 text-left shadow-[var(--shadow-border)]"
+        >
+          <p className="text-xs font-medium tracking-wide text-primary uppercase">
+            Ready for a higher dose
+          </p>
+          <p className="mt-1 font-medium">
+            {x.item.name}: {fmtDose(x.item, x.item.amount)} → {fmtDose(x.item, x.to)}
+          </p>
+          <p className="mt-1 text-sm text-muted-foreground">{x.why}</p>
+        </button>
+      ))}
+
+      {a.reconsider.map((r) => (
+        <button
+          type="button"
+          key={`${r.item.id}-${r.title}`}
+          onClick={() =>
+            open({
+              kind: r.action === "lower" || r.action === "stop" ? "evaluate" : "editor",
+              itemId: r.item.id,
+            })
+          }
+          className="w-full rounded-2xl bg-card p-4 text-left shadow-[var(--shadow-border)]"
+        >
+          <p className="text-xs font-medium tracking-wide text-warn uppercase">Reconsider</p>
+          <p className="mt-1 font-medium">
+            {r.item.name}: {r.title}
+          </p>
+          <p className="mt-1 text-sm text-muted-foreground">{r.detail}</p>
+        </button>
+      ))}
+
+      {a.ideas.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-sm font-medium">Worth considering for your goals</p>
+          {a.ideas.slice(0, 3).map((idea) => {
+            const Icon = iconFor(idea.catalogId);
+            return (
+              <details
+                key={idea.catalogId}
+                className="rounded-2xl bg-card p-4 shadow-[var(--shadow-border)]"
+              >
+                <summary className="flex cursor-pointer list-none items-center gap-3">
+                  <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-accent text-accent-foreground">
+                    <Icon className="size-5" />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block font-medium">{idea.name}</span>
+                    <span className="block text-xs text-muted-foreground">
+                      {idea.evidence} · {idea.when}
+                    </span>
+                  </span>
+                </summary>
+                <div className="mt-3 space-y-2 text-sm">
+                  {idea.reasons.map((r) => (
+                    <p key={r}>{r}</p>
+                  ))}
+                  <p className="text-muted-foreground">{idea.timing}</p>
+                  {idea.watch.length > 0 && (
+                    <p className="text-xs text-muted-foreground">
+                      Watch for: {idea.watch.join(", ").toLowerCase()}.
+                    </p>
+                  )}
+                  {idea.products.length > 0 && (
+                    <p className="text-xs text-muted-foreground">
+                      On iHerb: {idea.products.slice(0, 3).join(" · ")}
+                    </p>
+                  )}
+                  <Button size="sm" variant="outline" onClick={() => open({ kind: "add" })}>
+                    Add to my cabinet
+                  </Button>
+                </div>
+              </details>
+            );
+          })}
+        </div>
+      )}
+    </section>
+  );
+}
+
+/** Personal evidence: what you've learned about your own body so far. */
+function Findings() {
+  const { stack, logs, effects, decisions, body } = useSupplime();
+  const today = appToday();
+  const lines: { key: string; text: string }[] = [];
+  for (const item of stack) {
+    if (item.planned) continue;
+    const j = journeyFor({ item, logs, effects, decisions, today });
+    if (j.felt)
+      lines.push({
+        key: `${item.id}-felt`,
+        text: `${item.name} kicked in for you on day ${j.felt.day} (most people: ~day ${j.profile.typicalDay}).`,
+      });
+    for (const d of beforeAfter(item, body, today)) {
+      if (Math.abs(d.change) < (d.metric === "sleepHours" ? 0.2 : 2)) continue;
+      const label =
+        d.metric === "sleepHours"
+          ? "sleep"
+          : d.metric === "restingHr"
+            ? "resting heart rate"
+            : "HRV";
+      lines.push({
+        key: `${item.id}-${d.metric}`,
+        text: `Since ${item.name}, your ${label} went ${d.before} → ${d.after}${d.better ? " — in the right direction" : ""}.`,
+      });
+    }
+    if (item.archived)
+      lines.push({
+        key: `${item.id}-verdict`,
+        text: `${item.name}: ${VERDICT_COPY[item.archived.verdict].toLowerCase()} after ${daysBetween(item.startedAt, item.archived.date) + 1} days.`,
+      });
+  }
+  return (
+    <section className="rounded-2xl bg-card p-4 shadow-[var(--shadow-border)]">
+      <h2 className="font-display text-xl tracking-tight">Your findings</h2>
+      <p className="mt-1 text-sm text-muted-foreground">
+        What you've learned about your own body — the real point of every experiment.
+      </p>
+      {lines.length ? (
+        <ul className="mt-3 space-y-2 text-sm">
+          {lines.map((l) => (
+            <li key={l.key} className="rounded-xl bg-secondary px-3 py-2">
+              {l.text}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="mt-3 text-sm">
+          Nothing confirmed yet. Your first finding arrives with your first “clearly better”
+          check-in, or once a week of wearable data sits on both sides of a start date.
+        </p>
       )}
     </section>
   );

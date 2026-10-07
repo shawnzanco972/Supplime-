@@ -70,7 +70,7 @@ export const EFFECT_COPY = ["Nothing yet", "Maybe", "Noticeable", "Clear effect"
  * and you have not checked in for this item in the last few days.
  */
 export function needsCheckIn(item: StackItem, effects: EffectLog[], today = todayKey()) {
-  if (item.paused || item.archived) return false;
+  if (item.paused || item.archived || item.planned) return false;
   const w = effectWindow(item, today);
   const near = w.kind === "acute" ? w.elapsed >= 2 : w.elapsed >= Math.max(3, w.onsetMin - 2);
   if (!near) return false;
@@ -247,6 +247,9 @@ export function earnedBadges(input: {
   effects?: EffectLog[];
   already: BadgeId[];
   refilled?: boolean;
+  checks?: { itemId: string }[];
+  decisions?: { itemId: string }[];
+  linked?: boolean;
 }): BadgeId[] {
   const today = todayKey();
   const next = new Set(input.already);
@@ -263,6 +266,21 @@ export function earnedBadges(input: {
   if (bodyDays >= 7) next.add("signal-keeper");
   if (input.stack.some((item) => effectWindow(item, today).progress >= 1)) next.add("onset");
   if (input.effects?.some((e) => e.rating >= 2)) next.add("felt-it");
+  if (input.logs.some((l) => l.backfill)) next.add("history");
+  if ((input.decisions?.length ?? 0) > 0) next.add("verdict");
+  if ((input.checks?.length ?? 0) >= 5) next.add("safety-first");
+  if (input.linked) next.add("linked");
+  for (const item of input.stack) {
+    const w = effectWindow(item, today);
+    if (w.elapsed >= w.typicalDay && takenDays(item, input.logs) >= w.elapsed * 0.8)
+      next.add("fair-test");
+  }
+  const starts = input.stack
+    .filter((i) => !i.planned)
+    .map((i) => i.startedAt)
+    .sort();
+  if (starts.length >= 2 && daysBetween(starts.at(-2)!, starts.at(-1)!) >= 14)
+    next.add("one-at-a-time");
   return [...next];
 }
 
@@ -275,6 +293,18 @@ export const BADGE_COPY: Record<BadgeId, { name: string; detail: string }> = {
   "signal-keeper": { name: "Signal keeper", detail: "A week of body metrics." },
   onset: { name: "Window reached", detail: "Hit a typical onset window." },
   "felt-it": { name: "Felt it", detail: "Logged a noticeable effect." },
+  history: { name: "Brought my history", detail: "Told Supplime what you'd already been taking." },
+  "fair-test": {
+    name: "Fair test",
+    detail: "Took something 80%+ of days all the way to its typical onset.",
+  },
+  verdict: { name: "Verdict reached", detail: "Made a keep / adjust / stop decision." },
+  "safety-first": { name: "Safety first", detail: "Answered five side-effect checks." },
+  "one-at-a-time": {
+    name: "One at a time",
+    detail: "Started something new only once the last one had settled.",
+  },
+  linked: { name: "Linked", detail: "Connected your wearable through Health Connect." },
 };
 
 export function bodyAverages(body: BodyLog[], days = 7, today = todayKey()) {

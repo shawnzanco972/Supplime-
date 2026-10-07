@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { advise, backfillLogs, beforeAfter, nextAsk, safetyDue } from "@/lib/advisor";
+import { PRODUCT_BY_ID, contentsLabel, matchProduct } from "@/lib/products";
 import { doseFlags } from "@/lib/flags";
 import {
   bonusDay,
@@ -286,9 +288,10 @@ describe("habit flags", () => {
   });
 
   it("flags food-needing supplements in a no-food window", () => {
+    setup(["omega-3"]);
     const profile = { rhythm: rhythm(), habits: defaultHabits() };
     const flags = doseFlags({
-      item: byCat("lions-mane"),
+      item: byCat("omega-3"),
       slot: "wake",
       times: slotTimesFromRhythm(profile.rhythm),
       profile,
@@ -339,9 +342,10 @@ describe("gamification", () => {
 
   it("derives XP and levels from what you did", () => {
     const id = byCat("lions-mane").id;
+    const base = totalXp(s(), TODAY); // milestones reached on day 1 (same-day supplements)
     s().logDose(id, "breakfast", "taken");
     s().logEffect(id, 1);
-    expect(totalXp(s(), TODAY)).toBe(10 + 15);
+    expect(totalXp(s(), TODAY) - base).toBe(10 + 15);
     expect(levelFor(260)).toMatchObject({ level: 3, name: "Seedling" });
     expect(weekProgress(s(), TODAY).taken).toBe(1);
     expect(typeof bonusDay(TODAY)).toBe("boolean");
@@ -466,5 +470,191 @@ describe("backups and migration", () => {
     expect(s().importData(snapshot)).toBe(true);
     expect(s().stack).toHaveLength(3);
     expect(s().importData({ nope: true })).toBe(false);
+  });
+});
+
+describe("products and pills", () => {
+  const product = (id: string) => {
+    const p = PRODUCT_BY_ID[id]!;
+    return {
+      id: p.id,
+      brand: p.brand,
+      name: p.name,
+      form: p.form,
+      perUnit: p.perUnit,
+      dosePerUnit: p.dosePerUnit,
+    };
+  };
+
+  it("doses in pills and shows every ingredient", () => {
+    s().resetAll();
+    s().completeOnboarding({
+      displayName: "Shawn",
+      why: "",
+      goals: ["focus", "sleep"],
+      rhythm: rhythm(),
+      habits: defaultHabits(),
+      notifications: false,
+      items: [
+        {
+          catalogId: "omega-3",
+          product: product("cgn-omega3-premium"),
+          units: 2,
+          slots: ["dinner"],
+          servingsPerContainer: 100,
+        },
+      ],
+    });
+    const omega = byCat("omega-3");
+    expect(omega.amount).toBe(600);
+    expect(omega.servingsPerDose).toBe(2);
+    expect(contentsLabel(omega.product!.perUnit, 2, omega.product!.form)).toBe(
+      "2 softgels = 360 mg EPA + 240 mg DHA",
+    );
+    s().logDose(omega.id, "dinner", "taken");
+    expect(byCat("omega-3").servingsRemaining).toBe(98);
+  });
+
+  it("steps up a whole pill at a time, within the daily ceiling", () => {
+    s().resetAll();
+    s().completeOnboarding({
+      displayName: "Shawn",
+      why: "",
+      goals: [],
+      rhythm: rhythm(),
+      habits: defaultHabits(),
+      notifications: false,
+      items: [
+        {
+          catalogId: "lions-mane",
+          product: product("cgn-lions-mane-600"),
+          units: 1,
+          slots: ["breakfast"],
+        },
+        {
+          catalogId: "l-theanine",
+          product: product("doctors-best-theanine-150"),
+          units: 1,
+          slots: ["breakfast"],
+        },
+      ],
+    });
+    expect(nextStep(byCat("lions-mane"), 1)).toBe(1200);
+    expect(nextStep(byCat("l-theanine"), 1)).toBe(300);
+    s().saveItem(byCat("l-theanine").id, { servingsPerDose: 2 });
+    expect(byCat("l-theanine").amount).toBe(300);
+    expect(nextStep(byCat("l-theanine"), 1)).toBeNull(); // 450 mg > 400 mg ceiling
+  });
+
+  it("matches iHerb products by id or brand and strength", () => {
+    expect(matchProduct({ iherbId: 12959 })?.id).toBe("doctors-best-theanine-150");
+    expect(matchProduct({ catalogId: "melatonin", brand: "NOW Foods", amount: 3 })?.id).toBe(
+      "now-melatonin-3",
+    );
+  });
+});
+
+describe("your real setup: Sept 1 start, backfilled", () => {
+  const product = (id: string) => {
+    const p = PRODUCT_BY_ID[id]!;
+    return {
+      id: p.id,
+      brand: p.brand,
+      name: p.name,
+      form: p.form,
+      perUnit: p.perUnit,
+      dosePerUnit: p.dosePerUnit,
+    };
+  };
+  beforeEach(() => {
+    vi.setSystemTime(new Date(2026, 9, 7, 12, 0, 0));
+    s().resetAll();
+    s().completeOnboarding({
+      displayName: "Shawn",
+      why: "Sharper focus, better sleep",
+      goals: ["focus", "sleep"],
+      rhythm: rhythm(),
+      habits: defaultHabits(),
+      notifications: false,
+      items: [
+        {
+          catalogId: "lions-mane",
+          product: product("cgn-lions-mane-600"),
+          units: 1,
+          slots: ["breakfast"],
+          startedAt: "2026-09-01",
+          backfill: "most",
+          servingsPerContainer: 90,
+        },
+        {
+          catalogId: "l-theanine",
+          product: product("doctors-best-theanine-150"),
+          units: 1,
+          slots: ["breakfast"],
+          startedAt: "2026-09-01",
+          backfill: "most",
+          servingsPerContainer: 90,
+        },
+        {
+          catalogId: "melatonin",
+          product: product("now-melatonin-3"),
+          units: 1,
+          slots: ["bed"],
+          startedAt: "2026-09-01",
+          backfill: "most",
+          servingsPerContainer: 60,
+        },
+        {
+          catalogId: "omega-3",
+          product: product("cgn-omega3-premium"),
+          units: 2,
+          slots: ["dinner"],
+          planned: true,
+          servingsPerContainer: 100,
+        },
+      ],
+    });
+  });
+
+  it("rebuilds history and joins on Sept 1", () => {
+    expect(s().profile.joinedAt).toBe("2026-09-01");
+    expect(s().logs.filter((l) => l.backfill && l.status === "taken").length).toBeGreaterThan(80);
+    expect(s().profile.badges).toContain("history");
+  });
+
+  it("puts the owned omega first and lets you raise Lion's Mane after a check-in", () => {
+    const today = "2026-10-07";
+    const st = { ...s(), today };
+    let a = advise(st);
+    expect(a.planned.map((i) => i.name)).toEqual(["Omega-3 (EPA/DHA)"]);
+    expect(a.slotOpen).toBe(true);
+    expect(
+      a.reconsider.some((r) => r.item.catalogId === "melatonin" && r.action === "switch"),
+    ).toBe(true);
+    s().logEffect(byCat("lions-mane").id, 1, { area: "focus" });
+    a = advise({ ...s(), today });
+    expect(a.increases.find((x) => x.item.catalogId === "lions-mane")?.to).toBe(1200);
+    expect(a.ideas[0]?.catalogId).toBeDefined();
+  });
+
+  it("asks area questions and schedules safety checks", () => {
+    expect(nextAsk(byCat("lions-mane"), s().effects).area).toBe("focus");
+    expect(safetyDue(byCat("melatonin"), s().checks, "2026-10-07")).toBe(true);
+    s().logSafety(byCat("melatonin").id, []);
+    expect(safetyDue(byCat("melatonin"), s().checks, "2026-10-07")).toBe(false);
+  });
+
+  it("compares wearable data before and after", () => {
+    const body = [];
+    for (let i = -14; i < 36; i++) {
+      body.push({
+        date: addDays("2026-09-01", i),
+        sleepHours: i < 0 ? 6.2 : 7.1,
+        source: "manual" as const,
+      });
+    }
+    const d = beforeAfter(byCat("melatonin"), body, "2026-10-07");
+    expect(d[0]).toMatchObject({ metric: "sleepHours", before: 6.2, after: 7.1, better: true });
+    expect(backfillLogs(byCat("melatonin"), "2026-09-01", "2026-09-08", "every")).toHaveLength(7);
   });
 });

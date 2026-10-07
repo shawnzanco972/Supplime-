@@ -5,7 +5,7 @@ import { activeStack, dayMinutes, effectiveSlotTimes, logicalDate, planDay } fro
 import { daysOfStock, remainingKeys } from "./stats";
 import { useSupplime } from "./store";
 import { SLOTS, WAKE_RELATIVE, type SlotId } from "./types";
-import { addDays, formatClock, parseISODate } from "./utils";
+import { addDays, formatClock, formatShortDate, parseISODate } from "./utils";
 
 /**
  * Native reminders. Instead of relying on the app being open, Supplime hands Android a
@@ -275,7 +275,7 @@ export function buildSchedule(now = new Date()): LocalNotificationSchema[] {
       smallIcon: "ic_stat_supplime",
       iconColor: "#3D5A4C",
       title: `${item.name} is running low`,
-      body: `About ${item.reorderAtDays} days left. Time to reorder${cat ? "" : " this one"}.`,
+      body: `About ${item.reorderAtDays} days left — runs out around ${formatShortDate(addDays(today, left))}. Time to reorder${cat?.name ? "" : " this one"}.`,
       schedule: { at: when, allowWhileIdle: true },
       extra: { date: null, slot: null },
     });

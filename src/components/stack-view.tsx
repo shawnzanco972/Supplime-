@@ -9,14 +9,16 @@ import { useNav } from "@/lib/nav";
 import { daysOfStock, isLowStock } from "@/lib/stats";
 import { appToday, useSupplime } from "@/lib/store";
 import { SLOTS, type StackItem } from "@/lib/types";
-import { cn } from "@/lib/utils";
+import { addDays, cn, formatShortDate } from "@/lib/utils";
+import { contentsLabel } from "@/lib/products";
 
 export function StackView() {
   const { stack, profile, logs, effects, decisions } = useSupplime();
   const open = useNav((s) => s.open);
   const today = appToday();
-  const active = stack.filter((i) => !i.archived && !i.paused);
+  const active = stack.filter((i) => !i.archived && !i.paused && !i.planned);
   const paused = stack.filter((i) => !i.archived && i.paused);
+  const planned = stack.filter((i) => !i.archived && i.planned);
   const warnings = stackWarnings({ stack, times: profile.slotTimes, profile });
   const low = active.filter(isLowStock);
 
@@ -40,13 +42,23 @@ export function StackView() {
               <span className="text-xs text-muted-foreground">{phase.label}</span>
             )}
           </div>
+          {item.product && (
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              {item.product.brand} ·{" "}
+              {contentsLabel(item.product.perUnit, item.servingsPerDose, item.product.form)}
+            </p>
+          )}
           <p className="mt-0.5 text-sm text-muted-foreground">
             {item.amount} {item.unit} · {foodLabel(item.foodTiming)} ·{" "}
             {item.slots.map((s) => SLOTS.find((x) => x.id === s)?.label).join(", ")}
           </p>
           <p className="mt-1 text-xs text-muted-foreground">
             Day {j.day} · {j.atDose}d at this dose ·{" "}
-            <span className={cn(isLowStock(item) && "font-medium text-warn")}>{days}d supply</span>
+            <span className={cn(isLowStock(item) && "font-medium text-warn")}>
+              {item.planned
+                ? "not started"
+                : `${days}d supply · order by ${formatShortDate(addDays(today, Math.max(0, days - item.reorderAtDays)))}`}
+            </span>
           </p>
         </div>
         <ChevronRight className="size-5 shrink-0 text-muted-foreground" />
@@ -101,6 +113,18 @@ export function StackView() {
               </li>
             ))}
           </ul>
+        </section>
+      )}
+
+      {planned.length > 0 && (
+        <section className="space-y-3">
+          <div>
+            <h2 className="font-display text-lg tracking-tight">In your cabinet</h2>
+            <p className="text-sm text-muted-foreground">
+              Owned, not started. Journey tells you when it's a good time.
+            </p>
+          </div>
+          {planned.map(card)}
         </section>
       )}
 

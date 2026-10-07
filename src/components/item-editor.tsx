@@ -12,6 +12,10 @@ import {
   TimelineFields,
   type TimelineValue,
   Chip,
+  FoodOkPicker,
+  ReorderLeadPicker,
+  SlotHintPicker,
+  Stepper,
 } from "@/components/fields";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,11 +24,19 @@ import { Confirm, Screen, Sheet } from "@/components/ui/screen";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { KNOWLEDGE, profileFor } from "@/lib/knowledge";
+import { contentsLabel, productsFor, unitWord } from "@/lib/products";
 import { useNav } from "@/lib/nav";
 import { EFFECT_COPY, daysOfStock, effectHistory } from "@/lib/stats";
 import { appToday, useSupplime, type ItemDraft } from "@/lib/store";
-import type { HabitRule, ItemOverrides, MissedMode, StackItem, Verdict } from "@/lib/types";
-import { daysBetween, formatShortDate } from "@/lib/utils";
+import type {
+  FoodTiming,
+  HabitRule,
+  ItemOverrides,
+  MissedMode,
+  StackItem,
+  Verdict,
+} from "@/lib/types";
+import { addDays, daysBetween, formatShortDate } from "@/lib/utils";
 
 export const VERDICT_COPY: Record<Verdict, string> = {
   worked: "It worked",
@@ -49,6 +61,7 @@ function Editor({ item, onClose }: { item: StackItem; onClose: () => void }) {
   const archiveItem = useSupplime((s) => s.archiveItem);
   const restoreItem = useSupplime((s) => s.restoreItem);
   const refill = useSupplime((s) => s.refill);
+  const startPlanned = useSupplime((s) => s.startPlanned);
   const removeEffect = useSupplime((s) => s.removeEffect);
   const today = appToday();
   const p = profileFor(item);
@@ -78,12 +91,18 @@ function Editor({ item, onClose }: { item: StackItem; onClose: () => void }) {
     } as TimelineValue,
     rules: p.rules as HabitRule[],
     missed: p.missed as MissedMode,
+    foodOk: (item.foodOk ?? p.timing.food) as FoodTiming[],
+    reorderCustom: !!item.reorderCustom,
+    product: item.product,
   });
   const set = (patch: Partial<typeof d>) => setD((prev) => ({ ...prev, ...patch }));
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [stopOpen, setStopOpen] = useState(false);
 
   const doseChanged = d.amount !== undefined && d.amount > 0 && d.amount !== item.amount;
+  const prod = d.product;
+  const pills = prod ? Math.max(1, Math.round((d.amount ?? item.amount) / prod.dosePerUnit)) : 1;
+  const choices = item.catalogId ? productsFor(item.catalogId) : [];
 
   const draft = useMemo((): ItemDraft => {
     const overrides: ItemOverrides = {};
@@ -108,9 +127,12 @@ function Editor({ item, onClose }: { item: StackItem; onClose: () => void }) {
       servingsPerContainer: d.servingsPerContainer ?? item.servingsPerContainer,
       servingsPerDose: Math.max(1, d.servingsPerDose ?? item.servingsPerDose),
       reorderAtDays: d.reorderAtDays ?? item.reorderAtDays,
-      servingLabel: d.servingLabel.trim() || undefined,
+      servingLabel: item.product ? item.servingLabel : d.servingLabel.trim() || undefined,
       notes: d.notes,
+      foodOk: JSON.stringify(d.foodOk) === JSON.stringify(p.timing.food) ? undefined : d.foodOk,
+      reorderCustom: d.reorderCustom || undefined,
       paused: d.paused,
+      product: d.product,
       overrides: Object.keys(overrides).length ? overrides : undefined,
     };
   }, [d, guide, item]);
@@ -130,6 +152,9 @@ function Editor({ item, onClose }: { item: StackItem; onClose: () => void }) {
       servingLabel: item.servingLabel,
       notes: item.notes,
       paused: item.paused,
+      product: item.product,
+      foodOk: item.foodOk,
+      reorderCustom: item.reorderCustom || undefined,
       overrides: item.overrides && Object.keys(item.overrides).length ? item.overrides : undefined,
     };
     const { doseChange: _ignored, ...now } = draft;
@@ -172,6 +197,24 @@ function Editor({ item, onClose }: { item: StackItem; onClose: () => void }) {
     >
       <div className="space-y-4">
         {p.catalog && <p className="text-sm text-muted-foreground">{p.catalog.summary}</p>}
+        {item.planned && (
+          <div className="rounded-2xl bg-accent p-4">
+            <p className="font-medium text-accent-foreground">In your cabinet, not started yet</p>
+            <p className="mt-1 text-sm text-accent-foreground/80">
+              Starting it begins day 1 and its reminders.
+            </p>
+            <Button
+              className="mt-3"
+              onClick={() => {
+                startPlanned(item.id);
+                toast(`${item.name}: day 1`, { description: "One new thing at a time — nice." });
+                onClose();
+              }}
+            >
+              Start it today
+            </Button>
+          </div>
+        )}
 
         <Section title="Dose">
           {isCustom && (
@@ -179,14 +222,81 @@ function Editor({ item, onClose }: { item: StackItem; onClose: () => void }) {
               <Input id="name" value={d.name} onChange={(e) => set({ name: e.target.value })} />
             </Field>
           )}
-          <div className="grid grid-cols-[1fr_7rem] gap-3">
-            <Field label="Amount per dose" htmlFor="amount">
-              <NumberInput id="amount" value={d.amount} onChange={(amount) => set({ amount })} />
-            </Field>
-            <Field label="Unit" htmlFor="unit">
-              <Input id="unit" value={d.unit} onChange={(e) => set({ unit: e.target.value })} />
-            </Field>
-          </div>
+          {!prod && choices.length > 0 && (
+            <div className="space-y-2 rounded-xl bg-secondary p-3">
+              <p className="text-sm font-medium">Pick your exact bottle</p>
+              <p className="text-xs text-muted-foreground">
+                Fills in the strength and ingredients, and counts pills for you.
+              </p>
+              <div className="grid gap-2">
+                {choices.map((c) => (
+                  <button
+                    key={c.id}
+                    type="button"
+                    onClick={() => {
+                      const units = Math.max(1, Math.round(item.amount / c.dosePerUnit));
+                      set({
+                        product: {
+                          id: c.id,
+                          brand: c.brand,
+                          name: c.name,
+                          form: c.form,
+                          perUnit: c.perUnit,
+                          dosePerUnit: c.dosePerUnit,
+                          labelServing: c.labelServing,
+                          labelUse: c.labelUse,
+                        },
+                        amount: Math.round(units * c.dosePerUnit * 1000) / 1000,
+                        servingsPerDose: units,
+                        servingsPerContainer: c.counts[0],
+                        doseChange: "correction",
+                      });
+                    }}
+                    className="rounded-xl bg-card px-3 py-2 text-left"
+                  >
+                    <span className="block text-sm font-medium">
+                      {c.brand} · {c.name}
+                    </span>
+                    <span className="block text-xs text-muted-foreground">
+                      {contentsLabel(c.perUnit, 1, c.form)}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          {prod ? (
+            <>
+              <p className="text-sm text-muted-foreground">
+                {prod.brand} · {prod.name}
+              </p>
+              <Stepper
+                value={pills}
+                onChange={(n) =>
+                  set({
+                    amount: Math.round(n * prod!.dosePerUnit * 1000) / 1000,
+                    servingsPerDose: n,
+                  })
+                }
+                label={`${unitWord(prod.form, pills)} per dose`}
+              />
+              <p className="rounded-xl bg-secondary px-3 py-2 text-sm">
+                {contentsLabel(prod.perUnit, pills, prod.form)}
+              </p>
+              {prod.labelUse && (
+                <p className="text-xs text-muted-foreground">Label: {prod.labelUse}</p>
+              )}
+            </>
+          ) : (
+            <div className="grid grid-cols-[1fr_7rem] gap-3">
+              <Field label="Amount per dose" htmlFor="amount">
+                <NumberInput id="amount" value={d.amount} onChange={(amount) => set({ amount })} />
+              </Field>
+              <Field label="Unit" htmlFor="unit">
+                <Input id="unit" value={d.unit} onChange={(e) => set({ unit: e.target.value })} />
+              </Field>
+            </div>
+          )}
           {doseChanged && item.startedAt < today && (
             <div className="space-y-2 rounded-xl bg-secondary p-3">
               <p className="text-sm font-medium">What kind of change is this?</p>
@@ -211,13 +321,15 @@ function Editor({ item, onClose }: { item: StackItem; onClose: () => void }) {
               </p>
             </div>
           )}
-          <Field label="Strength per capsule (optional)" hint='For example "1 capsule = 500 mg".'>
-            <Input
-              value={d.servingLabel}
-              onChange={(e) => set({ servingLabel: e.target.value })}
-              placeholder="1 capsule = 500 mg"
-            />
-          </Field>
+          {!item.product && (
+            <Field label="Strength per capsule (optional)" hint='For example "1 capsule = 500 mg".'>
+              <Input
+                value={d.servingLabel}
+                onChange={(e) => set({ servingLabel: e.target.value })}
+                placeholder="1 capsule = 500 mg"
+              />
+            </Field>
+          )}
           {item.doseHistory.length > 1 && (
             <ol className="space-y-1 text-xs text-muted-foreground">
               {[...item.doseHistory].reverse().map((step, i) => (
@@ -242,13 +354,29 @@ function Editor({ item, onClose }: { item: StackItem; onClose: () => void }) {
         </Section>
 
         <Section title="When">
-          <SlotPicker
+          <SlotHintPicker
             value={d.slots}
             onChange={(slots) => set({ slots })}
             times={profile.slotTimes}
+            best={p.timing.best}
+            avoid={p.timing.avoid}
           />
-          <Field label="Food">
-            <FoodPicker value={d.foodTiming} onChange={(foodTiming) => set({ foodTiming })} />
+          <Field label="Food — every option that's fine">
+            <FoodOkPicker
+              value={d.foodOk}
+              onChange={(foodOk) =>
+                set({
+                  foodOk,
+                  foodTiming:
+                    foodOk.includes("with") && !foodOk.includes("empty")
+                      ? "with"
+                      : foodOk.includes("empty") && !foodOk.includes("with")
+                        ? "empty"
+                        : "any",
+                })
+              }
+              allowed={item.catalogId ? p.timing.food : undefined}
+            />
           </Field>
           {p.catalog && <p className="text-xs text-muted-foreground">{p.catalog.foodWhy}</p>}
         </Section>
@@ -319,15 +447,15 @@ function Editor({ item, onClose }: { item: StackItem; onClose: () => void }) {
               />
             </Field>
           </div>
-          <div className="flex items-center justify-between gap-3">
-            <Label>Warn me with this many days left</Label>
-            <NumberInput
-              className="w-24"
-              step={1}
-              value={d.reorderAtDays}
-              onChange={(v) => set({ reorderAtDays: v })}
+          <Field
+            label="Remind me to reorder"
+            hint={reorderHint(item, d.reorderAtDays ?? item.reorderAtDays, today)}
+          >
+            <ReorderLeadPicker
+              value={d.reorderAtDays ?? item.reorderAtDays}
+              onChange={(v) => set({ reorderAtDays: v, reorderCustom: true })}
             />
-          </div>
+          </Field>
           <div className="flex flex-wrap gap-2">
             <Button
               variant="outline"
@@ -505,4 +633,11 @@ function sortKeys(o: object) {
       .filter(([, v]) => v !== undefined)
       .sort(([a], [b]) => a.localeCompare(b)),
   );
+}
+
+function reorderHint(item: StackItem, lead: number, today: string) {
+  const left = daysOfStock(item);
+  const runsOut = addDays(today, left);
+  const orderBy = addDays(today, Math.max(0, left - lead));
+  return `About ${left} days left: runs out ${formatShortDate(runsOut)}, so order by ${formatShortDate(orderBy)}.`;
 }

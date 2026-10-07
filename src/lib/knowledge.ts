@@ -1,5 +1,5 @@
 import { CATALOG_BY_ID } from "./catalog";
-import type { CatalogItem, HabitRule, MissedMode, StackItem } from "./types";
+import type { CatalogItem, FoodTiming, HabitRule, MissedMode, SlotId, StackItem } from "./types";
 
 /**
  * What Supplime knows about each supplement beyond the basic guide entry:
@@ -368,6 +368,289 @@ export const KNOWLEDGE: Record<string, Knowledge> = {
   },
 };
 
+/* -------------------------------------------------------------- knowledge v2 */
+
+type Slot = SlotId;
+type Timing = { best: Slot[]; ok: Slot[]; avoid: Slot[]; food: FoodTiming[] };
+const T = (best: Slot[], ok: Slot[], avoid: Slot[], food: FoodTiming[]): Timing => ({
+  best,
+  ok,
+  avoid,
+  food,
+});
+const ALL: Slot[] = ["wake", "breakfast", "lunch", "afternoon", "dinner", "bed"];
+const MEALS: Slot[] = ["breakfast", "lunch", "dinner"];
+
+export type Ask = { area: string; question: string };
+export type Evidence = "strong" | "moderate" | "emerging";
+
+type Extra = {
+  timing: Timing;
+  asks: Ask[];
+  /** Side effects worth checking for now and then. */
+  watch: string[];
+  evidence: Evidence;
+  /** Usual daily ceiling, in the guide's dose unit. */
+  maxDaily?: number;
+  /** When evidence depends on being low first (labs). */
+  needsLabs?: boolean;
+};
+
+const ask = (area: string, question: string): Ask => ({ area, question });
+
+export const EXTRA: Record<string, Extra> = {
+  "lions-mane": {
+    timing: T(["breakfast"], ["wake", "lunch", "afternoon"], ["bed"], ["with", "empty", "any"]),
+    asks: [
+      ask("focus", "Is your focus sharper than before you started?"),
+      ask("memory", "Are words and names coming more easily?"),
+    ],
+    watch: ["Itchy skin or rash", "Stomach upset", "Restlessness"],
+    evidence: "emerging",
+    maxDaily: 3000,
+  },
+  "l-theanine": {
+    timing: T(
+      ["breakfast", "afternoon"],
+      ["wake", "lunch", "dinner", "bed"],
+      [],
+      ["empty", "with", "any"],
+    ),
+    asks: [ask("calm", "Calmer in tense moments, without feeling sleepy?")],
+    watch: ["Daytime drowsiness", "Headache", "Feeling too flat"],
+    evidence: "moderate",
+    maxDaily: 400,
+  },
+  melatonin: {
+    timing: T(["bed"], [], ["wake", "breakfast", "lunch", "afternoon"], ["any", "empty", "with"]),
+    asks: [
+      ask("sleep-onset", "Falling asleep faster than before?"),
+      ask("sleep-quality", "Waking up rested, not groggy?"),
+    ],
+    watch: ["Morning grogginess", "Vivid dreams or nightmares", "Headache", "Daytime sleepiness"],
+    evidence: "strong",
+    maxDaily: 3,
+  },
+  magnesium: {
+    timing: T(["bed", "dinner"], ["lunch", "afternoon"], [], ["with", "empty", "any"]),
+    asks: [
+      ask("sleep-quality", "Sleeping more deeply?"),
+      ask("muscles", "Fewer cramps or tight muscles?"),
+    ],
+    watch: ["Loose stools", "Stomach upset"],
+    evidence: "moderate",
+    maxDaily: 400,
+  },
+  "vitamin-d": {
+    timing: T(MEALS, [], ["bed"], ["with"]),
+    asks: [ask("energy", "Energy and mood steadier? (Labs are the real test.)")],
+    watch: ["Nausea or constipation", "Unusual thirst"],
+    evidence: "strong",
+    maxDaily: 4000,
+    needsLabs: true,
+  },
+  "vitamin-k2": {
+    timing: T(MEALS, [], [], ["with"]),
+    asks: [],
+    watch: ["Stomach upset", "Tell your doctor if you take blood thinners"],
+    evidence: "moderate",
+    maxDaily: 200,
+  },
+  "omega-3": {
+    timing: T(["dinner", "breakfast"], ["lunch"], ["wake", "bed"], ["with"]),
+    asks: [ask("mood", "Mood steadier?"), ask("joints", "Joints less stiff?")],
+    watch: ["Fishy burps", "Loose stools", "Easy bruising (with blood thinners)"],
+    evidence: "strong",
+    maxDaily: 3000,
+  },
+  ashwagandha: {
+    timing: T(["dinner", "bed"], ["breakfast", "lunch"], [], ["with", "empty"]),
+    asks: [ask("calm", "Less stressed day to day?"), ask("sleep-quality", "Sleeping better?")],
+    watch: [
+      "Drowsiness",
+      "Stomach upset",
+      "Feeling emotionally flat",
+      "Racing heart or feeling hot",
+    ],
+    evidence: "moderate",
+    maxDaily: 900,
+  },
+  rhodiola: {
+    timing: T(["wake"], ["breakfast"], ["afternoon", "dinner", "bed"], ["empty", "with"]),
+    asks: [ask("energy", "More stamina through the afternoon?")],
+    watch: ["Jitteriness", "Trouble sleeping", "Irritability"],
+    evidence: "moderate",
+    maxDaily: 600,
+  },
+  bacopa: {
+    timing: T(["breakfast", "dinner"], ["lunch"], [], ["with"]),
+    asks: [ask("memory", "Remembering things more easily?")],
+    watch: ["Stomach cramps or nausea", "Tiredness"],
+    evidence: "moderate",
+    maxDaily: 600,
+  },
+  creatine: {
+    timing: T(["breakfast", "lunch"], ALL, [], ["with", "empty", "any"]),
+    asks: [
+      ask("recovery", "Stronger or recovering faster in workouts?"),
+      ask("focus", "Mentally sharper when tired?"),
+    ],
+    watch: ["Bloating", "Stomach upset"],
+    evidence: "strong",
+    maxDaily: 10,
+  },
+  zinc: {
+    timing: T(["dinner", "lunch"], ["breakfast"], ["wake"], ["with"]),
+    asks: [ask("immunity", "Fewer colds or shorter ones?")],
+    watch: ["Nausea", "Metallic taste"],
+    evidence: "moderate",
+    maxDaily: 40,
+  },
+  "vitamin-c": {
+    timing: T(["breakfast", "lunch"], ALL, [], ["with", "empty", "any"]),
+    asks: [ask("immunity", "Fewer colds or shorter ones?")],
+    watch: ["Loose stools", "Heartburn"],
+    evidence: "moderate",
+    maxDaily: 2000,
+  },
+  "vitamin-b12": {
+    timing: T(["wake", "breakfast"], ["lunch"], ["bed"], ["empty", "with", "any"]),
+    asks: [ask("energy", "More energy through the day?")],
+    watch: ["Acne", "Restlessness"],
+    evidence: "strong",
+    maxDaily: 2000,
+    needsLabs: true,
+  },
+  glycine: {
+    timing: T(["bed"], ["dinner"], ["wake", "breakfast"], ["empty", "any"]),
+    asks: [ask("sleep-quality", "Sleeping more deeply?")],
+    watch: ["Stomach upset", "Daytime drowsiness"],
+    evidence: "moderate",
+    maxDaily: 5,
+  },
+  curcumin: {
+    timing: T(["dinner", "lunch", "breakfast"], [], [], ["with"]),
+    asks: [ask("joints", "Joints less sore or stiff?")],
+    watch: ["Stomach upset", "Loose stools"],
+    evidence: "moderate",
+    maxDaily: 1500,
+  },
+  coq10: {
+    timing: T(["breakfast", "lunch"], ["dinner"], ["bed"], ["with"]),
+    asks: [ask("energy", "More energy or stamina?")],
+    watch: ["Trouble sleeping", "Stomach upset"],
+    evidence: "moderate",
+    maxDaily: 300,
+  },
+  probiotic: {
+    timing: T(["wake", "breakfast"], ALL, [], ["empty", "with", "any"]),
+    asks: [ask("digestion", "Digestion more comfortable?")],
+    watch: ["Bloating or gas (often first week)", "Stomach upset"],
+    evidence: "moderate",
+  },
+  iron: {
+    timing: T(["wake"], ["afternoon"], ["breakfast", "dinner"], ["empty"]),
+    asks: [ask("energy", "Less tired? (Ferritin labs are the real test.)")],
+    watch: ["Constipation", "Nausea", "Stomach pain"],
+    evidence: "strong",
+    needsLabs: true,
+  },
+  collagen: {
+    timing: T(["breakfast"], ALL, [], ["any", "with", "empty"]),
+    asks: [ask("joints", "Joints or skin feeling better?")],
+    watch: ["Bloating", "Feeling overly full"],
+    evidence: "moderate",
+    maxDaily: 20,
+  },
+  electrolytes: {
+    timing: T(["breakfast", "afternoon"], ALL, ["bed"], ["any", "with", "empty"]),
+    asks: [ask("energy", "Fewer headaches or energy dips?")],
+    watch: ["Swelling in ankles", "Raised blood pressure"],
+    evidence: "emerging",
+  },
+  reishi: {
+    timing: T(["dinner", "bed"], ["breakfast"], [], ["with", "empty"]),
+    asks: [ask("calm", "Calmer evenings?"), ask("sleep-quality", "Sleeping better?")],
+    watch: ["Dry mouth", "Stomach upset", "Dizziness"],
+    evidence: "emerging",
+    maxDaily: 2000,
+  },
+  cordyceps: {
+    timing: T(["wake", "breakfast"], ["lunch"], ["dinner", "bed"], ["with", "empty"]),
+    asks: [ask("energy", "More stamina in exercise?")],
+    watch: ["Stomach upset", "Dry mouth"],
+    evidence: "emerging",
+    maxDaily: 2000,
+  },
+  "alpha-gpc": {
+    timing: T(["wake", "breakfast"], ["lunch"], ["dinner", "bed"], ["with", "empty"]),
+    asks: [ask("focus", "Sharper focus within an hour of taking it?")],
+    watch: ["Headache", "Heartburn", "Trouble sleeping"],
+    evidence: "moderate",
+    maxDaily: 600,
+  },
+  berberine: {
+    timing: T(["lunch", "dinner", "breakfast"], [], ["wake", "bed"], ["with"]),
+    asks: [ask("energy", "Fewer energy crashes after meals?")],
+    watch: ["Constipation or diarrhoea", "Cramping", "Shaky or low-sugar feeling"],
+    evidence: "moderate",
+    maxDaily: 1500,
+  },
+  taurine: {
+    timing: T(["dinner", "afternoon", "bed"], ALL, [], ["empty", "with", "any"]),
+    asks: [ask("calm", "Calmer evenings?")],
+    watch: ["Stomach upset", "Dizziness"],
+    evidence: "moderate",
+    maxDaily: 3000,
+  },
+  saffron: {
+    timing: T(["breakfast"], ["lunch", "dinner"], [], ["with"]),
+    asks: [ask("mood", "Mood brighter or steadier?")],
+    watch: ["Dry mouth", "Nausea", "Changes in appetite"],
+    evidence: "moderate",
+    maxDaily: 30,
+  },
+  apigenin: {
+    timing: T(["bed"], [], ["wake", "breakfast", "lunch"], ["any", "empty"]),
+    asks: [ask("sleep-onset", "Falling asleep more easily?")],
+    watch: ["Morning grogginess", "Daytime drowsiness"],
+    evidence: "emerging",
+    maxDaily: 100,
+  },
+  nac: {
+    timing: T(["breakfast", "wake"], ALL, [], ["empty", "with", "any"]),
+    asks: [ask("general", "Feeling better overall?")],
+    watch: ["Nausea", "Stomach upset"],
+    evidence: "moderate",
+    maxDaily: 1800,
+  },
+  "b-complex": {
+    timing: T(["breakfast"], ["wake", "lunch"], ["dinner", "bed"], ["with"]),
+    asks: [ask("energy", "More energy through the day?")],
+    watch: ["Nausea on an empty stomach"],
+    evidence: "moderate",
+  },
+};
+
+export const AREA_LABEL: Record<string, string> = {
+  focus: "Focus",
+  memory: "Memory",
+  calm: "Calm",
+  "sleep-onset": "Falling asleep",
+  "sleep-quality": "Sleep quality",
+  muscles: "Muscles",
+  energy: "Energy",
+  mood: "Mood",
+  joints: "Joints",
+  recovery: "Recovery",
+  immunity: "Immunity",
+  digestion: "Digestion",
+  general: "Overall",
+};
+
+/** Ratings in the language of the question. */
+export const AREA_COPY = ["No change", "A little", "Clearly better", "Much better"] as const;
+
 /** Defaults for things the guide doesn't know, by category. */
 const CATEGORY_DEFAULTS: Record<CatalogItem["category"], { typical: number; evaluate: number }> = {
   nootropic: { typical: 21, evaluate: 56 },
@@ -400,6 +683,12 @@ export type Profile = {
   increaseGuidance: string;
   ceiling: string;
   catalog?: CatalogItem;
+  timing: Timing;
+  asks: Ask[];
+  watch: string[];
+  evidence: Evidence;
+  maxDaily?: number;
+  needsLabs?: boolean;
 };
 
 /** Everything Supplime knows about one stack item, with your own overrides on top. */
@@ -407,6 +696,7 @@ export function profileFor(item: StackItem): Profile {
   const cat = item.catalogId ? CATALOG_BY_ID[item.catalogId] : undefined;
   const k = item.catalogId ? KNOWLEDGE[item.catalogId] : undefined;
   const o = item.overrides ?? {};
+  const x = item.catalogId ? EXTRA[item.catalogId] : undefined;
   const base = cat ? CATEGORY_DEFAULTS[cat.category] : CATEGORY_DEFAULTS.other;
 
   const firstSigns = o.firstSignsDay ?? k?.firstSignsDay ?? cat?.onset.days.min ?? 7;
@@ -438,6 +728,17 @@ export function profileFor(item: StackItem): Profile {
     increaseGuidance: cat?.increaseGuidance ?? "Give one dose a fair run before changing it.",
     ceiling: cat?.typicalCeiling ?? "Check the label",
     catalog: cat,
+    timing: x?.timing ?? {
+      best: item.slots,
+      ok: ALL.filter((sl) => !item.slots.includes(sl)),
+      avoid: [],
+      food: [item.foodTiming],
+    },
+    asks: x?.asks.length ? x.asks : [ask("general", `Do you notice ${item.name} helping?`)],
+    watch: x?.watch ?? [],
+    evidence: x?.evidence ?? "emerging",
+    maxDaily: x?.maxDaily,
+    needsLabs: x?.needsLabs,
   };
 }
 
@@ -447,13 +748,35 @@ function defaultRules(item: StackItem): HabitRule[] {
   return [];
 }
 
-/** Next rung on the dose ladder above (or below) the current amount. */
+/**
+ * Next dose above (or below) the current one. With a real bottle the ladder is whole
+ * pills (1 → 2 → 3 capsules); otherwise the guide's steps. Never past the usual daily
+ * ceiling, counting every time of day you take it.
+ */
 export function nextStep(item: StackItem, direction: 1 | -1): number | null {
-  const steps = profileFor(item).steps;
+  const p = profileFor(item);
+  const perDay = Math.max(1, item.slots.length);
+  const fits = (amount: number) => p.maxDaily === undefined || amount * perDay <= p.maxDaily + 1e-9;
+  if (item.product) {
+    const units = Math.round(item.amount / item.product.dosePerUnit) || item.servingsPerDose;
+    const next = units + direction;
+    if (next < 1) return null;
+    const amount = round(next * item.product.dosePerUnit);
+    return direction === 1 && !fits(amount) ? null : amount;
+  }
+  const steps = p.steps;
   if (steps.length === 0) return null;
-  if (direction === 1) return steps.find((s) => s > item.amount + 1e-9) ?? null;
+  if (direction === 1) return steps.find((s) => s > item.amount + 1e-9 && fits(s)) ?? null;
   return [...steps].reverse().find((s) => s < item.amount - 1e-9) ?? null;
 }
+
+/** Pills for an amount of a product (1 decimal max). */
+export function unitsFor(item: StackItem, amount = item.amount) {
+  if (!item.product) return null;
+  return Math.round((amount / item.product.dosePerUnit) * 10) / 10;
+}
+
+const round = (n: number) => Math.round(n * 1000) / 1000;
 
 export const ALL_FACTS: { id: string; itemId: string; text: string }[] = Object.entries(
   KNOWLEDGE,

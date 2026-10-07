@@ -1,13 +1,14 @@
-import { AlarmClock, Check, Coffee, Sparkles, Sun, Undo2, Wine } from "lucide-react";
+import { AlarmClock, Check, Coffee, Flag, Sparkles, Sun, Undo2, Wine } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
-import { EffectCheckIn } from "@/components/effect-check-in";
+import { EffectCheckIn, SafetyCheck } from "@/components/effect-check-in";
 import { FlagChip } from "@/components/flag-chip";
 import { LevelCard } from "@/components/level-card";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { doseFlags } from "@/lib/flags";
-import { gameSummary, XP, bonusDay, type Quest } from "@/lib/game";
+import { gameSummary, milestonesReached, XP, bonusDay, type Quest } from "@/lib/game";
+import { safetyDue } from "@/lib/advisor";
 import { useNav } from "@/lib/nav";
 import { clearDelivered } from "@/lib/notifications";
 import {
@@ -48,6 +49,8 @@ export function TodayView({ now }: { now: number }) {
   const nxt = nextSlot(plans, remaining, nowMin);
   const low = stack.filter((item) => !item.paused && !item.archived && isLowStock(item));
   const checkIns = stack.filter((item) => needsCheckIn(item, effects, date)).slice(0, 2);
+  const safety = stack.find((item) => safetyDue(item, state.checks, date));
+  const milestonesToday = milestonesReached(state, date).filter((m) => m.date === date);
   const active = stack.filter((i) => !i.archived);
 
   if (active.length === 0) {
@@ -301,6 +304,31 @@ export function TodayView({ now }: { now: number }) {
         })}
       </div>
 
+      {milestonesToday.length > 0 && (
+        <section className="space-y-2">
+          {milestonesToday.map((m) => (
+            <div
+              key={`${m.itemId}-${m.key}`}
+              className="flex items-start gap-3 rounded-2xl bg-accent p-4 text-accent-foreground animate-in fade-in-0 zoom-in-95"
+            >
+              <Flag className="mt-0.5 size-5 shrink-0" />
+              <div>
+                <p className="font-medium">
+                  Milestone: {m.name} — {m.label.toLowerCase()} · +{XP.milestone} XP
+                </p>
+                <p className="text-sm opacity-85">{MILESTONE_NEXT[m.key] ?? ""}</p>
+              </div>
+            </div>
+          ))}
+        </section>
+      )}
+
+      {safety && (
+        <section id="safety">
+          <SafetyCheck item={safety} />
+        </section>
+      )}
+
       {checkIns.length > 0 && (
         <section className="space-y-3" id="check-ins">
           <div>
@@ -326,6 +354,8 @@ export function TodayView({ now }: { now: number }) {
     else if (a.kind === "check-in")
       document.getElementById("check-ins")?.scrollIntoView({ behavior: "smooth" });
     else if (a.kind === "insight") go("journey");
+    else if (a.kind === "safety")
+      document.getElementById("safety")?.scrollIntoView({ behavior: "smooth" });
   }
 }
 
@@ -586,3 +616,12 @@ function DoseRow({
     </div>
   );
 }
+
+const MILESTONE_NEXT: Record<string, string> = {
+  "first-signs":
+    "From today some people start noticing it. Check in every few days so you catch the moment.",
+  typical:
+    "Most people feel it by now. If you don't yet, that's useful information — check in today.",
+  "dose-review":
+    "You've given this dose a fair run. If it isn't doing enough, a step up is now allowed.",
+};

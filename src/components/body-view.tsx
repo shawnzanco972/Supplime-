@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { Textarea } from "@/components/ui/textarea";
+import { HealthConnect } from "@/components/health-connect";
 import { parseFitbitCsv } from "@/lib/fitbit";
 import { bodyAverages, dayAdherence } from "@/lib/stats";
 import { appToday, useSupplime } from "@/lib/store";
@@ -64,14 +65,18 @@ export function BodyView() {
   return (
     <div className="mx-auto max-w-xl space-y-6">
       <header>
-        <p className="text-sm text-muted-foreground">Fitbit-shaped signals</p>
+        <p className="text-sm text-muted-foreground">Sleep, heart and how you feel</p>
         <h1 className="font-display text-3xl tracking-tight">Body</h1>
         <p className="mt-2 text-sm text-muted-foreground">
-          Log last night from the Fitbit glance — sleep, resting heart rate, HRV — then Supplime can
-          sit those numbers next to your stack. Direct Fitbit login isn't available here, so this is
-          typed or imported.
+          Supplime puts these next to each supplement's start date, so you can see whether sleep,
+          resting heart rate or HRV moved after you began.
         </p>
       </header>
+
+      <section className="rounded-2xl bg-card p-4 shadow-[var(--shadow-border)]">
+        <p className="mb-2 font-medium">Fitbit Air / Google Health</p>
+        <HealthConnect />
+      </section>
 
       <section className="grid grid-cols-3 gap-2">
         <Mini label="Sleep" value={avgs.sleepHours ? `${avgs.sleepHours.toFixed(1)}h` : "—"} />

@@ -17,6 +17,7 @@ import { useNav } from "@/lib/nav";
 import { clearDelivered, setupNotifications } from "@/lib/notifications";
 import { isNative } from "@/lib/platform";
 import { effectiveSlotTimes, nowInDay, planDay } from "@/lib/protocol";
+import { maybeSyncHealth } from "@/lib/health";
 import { listenForShares } from "@/lib/share";
 import { remainingKeys } from "@/lib/stats";
 import { useSupplime } from "@/lib/store";
@@ -119,7 +120,11 @@ export function AppFrame() {
       onOpen: () => useNav.getState().go("today"),
     });
     const stopShares = listenForShares((text) => useNav.getState().open({ kind: "add", text }));
-    const resume = CapApp.addListener("resume", () => setNow(Date.now()));
+    void maybeSyncHealth();
+    const resume = CapApp.addListener("resume", () => {
+      setNow(Date.now());
+      void maybeSyncHealth();
+    });
     // Android back: close an open panel first, then go back to Today, then leave the app.
     const back = CapApp.addListener("backButton", () => {
       if (useNav.getState().overlay || document.querySelector('[role="dialog"]')) {

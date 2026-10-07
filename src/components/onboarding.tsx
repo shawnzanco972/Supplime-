@@ -1,15 +1,18 @@
 import { X } from "lucide-react";
 import { useState, type ReactNode } from "react";
-import { Chip, HabitsForm, NumberInput, RhythmForm, StartedPicker } from "@/components/fields";
+import { Chip, HabitsForm, RhythmForm } from "@/components/fields";
+import { ItemSetupForm, type SetupSeed } from "@/components/item-setup";
+import { BrandBadge, ProductPicker, iconFor } from "@/components/product-picker";
 import { enableNotifications } from "@/components/reminders";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { CATALOG, CATALOG_BY_ID, catalogForGoals, searchCatalog } from "@/lib/catalog";
+import { CATALOG_BY_ID } from "@/lib/catalog";
 import { profileFor } from "@/lib/knowledge";
-import { defaultRhythm, logicalDate } from "@/lib/protocol";
+import { contentsLabel } from "@/lib/products";
+import { defaultRhythm, logicalDate, slotTimesFromRhythm } from "@/lib/protocol";
 import { defaultHabits, useSupplime, type NewItem } from "@/lib/store";
 import { GOALS, type GoalId, type Habits, type Rhythm, type StackItem } from "@/lib/types";
-import { cn } from "@/lib/utils";
+import { cn, daysBetween } from "@/lib/utils";
 
 const WHY_IDEAS = [
   "Sharper focus at work",
@@ -29,14 +32,9 @@ export function Onboarding() {
   const [rhythm, setRhythm] = useState<Rhythm>(defaultRhythm());
   const [habits, setHabits] = useState<Habits>(defaultHabits());
   const [picked, setPicked] = useState<NewItem[]>([]);
-  const [query, setQuery] = useState("");
+  const [adding, setAdding] = useState<null | "pick" | SetupSeed>(null);
   const [notify, setNotify] = useState(false);
   const today = logicalDate(new Date(), rhythm);
-
-  const suggested = goals.length ? catalogForGoals(goals) : CATALOG;
-  const results = (query.trim() ? searchCatalog(query) : suggested).filter(
-    (c) => !picked.some((p) => p.catalogId === c.id),
-  );
 
   const nav = (back: number | null, next: () => void, label = "Continue", disabled = false) => (
     <div className="mt-auto flex gap-3 pt-8">
@@ -143,60 +141,73 @@ export function Onboarding() {
         </Step>
       )}
 
-      {step === 4 && (
+      {step === 4 && adding === null && (
         <Step
           title="What are you taking now?"
-          hint="Add what you already take and roughly since when. You can add iHerb products later from Stack."
+          hint="Find the type, then the brand and bottle — strength, ingredients and directions fill in. Tell Supplime since when, and your timeline starts on the right day."
         >
           {picked.length > 0 && (
-            <div className="space-y-3">
-              {picked.map((p) => (
+            <div className="space-y-2">
+              {picked.map((p, i) => (
                 <PickedRow
-                  key={p.catalogId!}
+                  key={i}
                   item={p}
                   today={today}
-                  onChange={(next) =>
-                    setPicked((prev) => prev.map((x) => (x.catalogId === p.catalogId ? next : x)))
-                  }
-                  onRemove={() =>
-                    setPicked((prev) => prev.filter((x) => x.catalogId !== p.catalogId))
-                  }
+                  onRemove={() => setPicked((prev) => prev.filter((_, j) => j !== i))}
                 />
               ))}
             </div>
           )}
-          <Input
-            className="mt-4"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search: Lion's Mane, theanine, melatonin…"
-          />
-          <div className="mt-3 flex max-h-[40dvh] flex-col gap-2 overflow-y-auto">
-            {results.slice(0, 15).map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => {
-                  setPicked((prev) => [
-                    ...prev,
-                    { catalogId: item.id, startedAt: today, amount: item.defaultAmount },
-                  ]);
-                  setQuery("");
-                }}
-                className="rounded-xl bg-card px-4 py-3 text-left shadow-[var(--shadow-border)]"
-              >
-                <div className="flex items-baseline justify-between gap-3">
-                  <span className="font-medium">+ {item.name}</span>
-                  <span className="text-xs text-muted-foreground">{item.typicalDose}</span>
-                </div>
-              </button>
-            ))}
-          </div>
+          <Button
+            variant={picked.length ? "outline" : "default"}
+            className="mt-4 w-full"
+            onClick={() => setAdding("pick")}
+          >
+            + {picked.length ? "Add another" : "Add a supplement"}
+          </Button>
           {nav(
             3,
             () => setStep(5),
             picked.length ? `Continue with ${picked.length}` : "Skip for now",
           )}
+        </Step>
+      )}
+
+      {step === 4 && adding === "pick" && (
+        <Step title="Pick a type">
+          <ProductPicker
+            exclude={picked.map((p) => p.catalogId!).filter(Boolean)}
+            onPick={(p) => setAdding(p.custom ? {} : p)}
+          />
+          <button
+            type="button"
+            className="mt-4 min-h-11 text-sm text-muted-foreground underline"
+            onClick={() => setAdding(null)}
+          >
+            Back
+          </button>
+        </Step>
+      )}
+
+      {step === 4 && adding !== null && adding !== "pick" && (
+        <Step title="Set it up">
+          <ItemSetupForm
+            seed={adding}
+            today={today}
+            times={slotTimesFromRhythm(rhythm)}
+            submitLabel="Add"
+            onSubmit={(item) => {
+              setPicked((prev) => [...prev, item]);
+              setAdding(null);
+            }}
+          />
+          <button
+            type="button"
+            className="mt-2 min-h-11 text-sm text-muted-foreground underline"
+            onClick={() => setAdding("pick")}
+          >
+            Back
+          </button>
         </Step>
       )}
 
@@ -260,53 +271,57 @@ function Step({ title, hint, children }: { title: string; hint?: string; childre
 function PickedRow({
   item,
   today,
-  onChange,
   onRemove,
 }: {
   item: NewItem;
   today: string;
-  onChange: (next: NewItem) => void;
   onRemove: () => void;
 }) {
-  const cat = CATALOG_BY_ID[item.catalogId!]!;
-  const p = profileFor({ catalogId: cat.id } as StackItem);
+  const cat = item.catalogId ? CATALOG_BY_ID[item.catalogId] : undefined;
+  const Icon = iconFor(item.catalogId);
+  const p = profileFor({
+    catalogId: item.catalogId ?? null,
+    slots: [],
+    foodTiming: "any",
+  } as unknown as StackItem);
+  const day = item.startedAt && item.startedAt < today ? daysBetween(item.startedAt, today) + 1 : 1;
   return (
-    <div className="space-y-3 rounded-2xl bg-card p-4 shadow-[var(--shadow-border)]">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="font-medium">{cat.name}</p>
-          <p className="text-xs text-primary">
-            {p.kind === "acute" && p.minutes
-              ? `Felt in ${p.minutes.min}–${p.minutes.max} min`
-              : `Usually felt around day ${p.typicalDay}`}{" "}
-            · verdict day {p.evaluateDay}
-          </p>
-        </div>
-        <button
-          type="button"
-          aria-label={`Remove ${cat.name}`}
-          onClick={onRemove}
-          className="-mt-1 -mr-1 flex size-9 items-center justify-center rounded-lg text-muted-foreground"
-        >
-          <X className="size-4" />
-        </button>
+    <div className="flex items-start gap-3 rounded-2xl bg-card p-3 shadow-[var(--shadow-border)]">
+      {item.product ? (
+        <BrandBadge brand={item.product.brand} />
+      ) : (
+        <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-accent text-accent-foreground">
+          <Icon className="size-5" />
+        </span>
+      )}
+      <div className="min-w-0 flex-1">
+        <p className="font-medium">{cat?.name ?? item.name}</p>
+        <p className="text-xs text-muted-foreground">
+          {item.product
+            ? contentsLabel(item.product.perUnit, item.units ?? 1, item.product.form)
+            : `${item.amount ?? ""} ${item.unit ?? ""}`}
+        </p>
+        <p className="mt-0.5 text-xs text-primary">
+          {item.planned
+            ? "In your cabinet, not started"
+            : day > 1
+              ? `Day ${day} · `
+              : "Starts today · "}
+          {item.planned
+            ? ""
+            : p.kind === "acute" && p.minutes
+              ? `felt in ${p.minutes.min}–${p.minutes.max} min`
+              : `most feel it by day ${p.typicalDay}`}
+        </p>
       </div>
-      <div className="flex items-center gap-2">
-        <NumberInput
-          className="w-28"
-          value={item.amount}
-          onChange={(amount) => onChange({ ...item, amount })}
-        />
-        <span className="text-sm text-muted-foreground">{cat.unit} per dose</span>
-      </div>
-      <div>
-        <p className="mb-2 text-xs text-muted-foreground">Taking it since</p>
-        <StartedPicker
-          value={item.startedAt ?? today}
-          onChange={(startedAt) => onChange({ ...item, startedAt })}
-          today={today}
-        />
-      </div>
+      <button
+        type="button"
+        aria-label="Remove"
+        onClick={onRemove}
+        className="-mt-1 -mr-1 flex size-9 items-center justify-center rounded-lg text-muted-foreground"
+      >
+        <X className="size-4" />
+      </button>
     </div>
   );
 }
