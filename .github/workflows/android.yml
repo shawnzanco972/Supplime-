@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       VERSION_CODE: ${{ github.run_number }}
-      VERSION_NAME: 2.0.${{ github.run_number }}
+      VERSION_NAME: 3.0.${{ github.run_number }}
     steps:
       - uses: actions/checkout@v5
 
@@ -37,7 +37,7 @@ jobs:
           packages: "platform-tools platforms;android-36 build-tools;36.0.0"
 
       - name: Install
-        run: npm ci
+        run: npm install --no-audit --no-fund
 
       - name: Typecheck and test
         run: |
