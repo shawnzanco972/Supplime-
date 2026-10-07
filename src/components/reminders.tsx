@@ -2,10 +2,10 @@ import { useEffect, useRef } from "react";
 import { toast } from "sonner";
 import { requestNotificationPermission, syncReminders } from "@/lib/notifications";
 import { isNative } from "@/lib/platform";
-import { nextSlot, planDay } from "@/lib/protocol";
+import { effectiveSlotTimes, logicalDate, nextSlot, nowInDay, planDay } from "@/lib/protocol";
 import { remainingKeys } from "@/lib/stats";
 import { useSupplime } from "@/lib/store";
-import { formatClock, minutesNow, parseHHMM, todayKey } from "@/lib/utils";
+import { formatClock, minutesNow, parseHHMM } from "@/lib/utils";
 
 /**
  * On Android the real work happens in native alarms (see lib/notifications). This
@@ -16,6 +16,7 @@ export function ReminderEngine({ now }: { now: number }) {
   const stack = useSupplime((s) => s.stack);
   const logs = useSupplime((s) => s.logs);
   const profile = useSupplime((s) => s.profile);
+  const days = useSupplime((s) => s.days);
   const fired = useRef(new Set<string>());
 
   // Native: rebuild the alarm schedule after any relevant change (debounced) and when
@@ -32,6 +33,8 @@ export function ReminderEngine({ now }: { now: number }) {
     profile.reminderLeadMinutes,
     profile.nagMinutes,
     profile.onboarded,
+    profile.rhythm,
+    days,
     now,
   ]);
 
@@ -41,12 +44,14 @@ export function ReminderEngine({ now }: { now: number }) {
     if (!profile.notifications || !profile.onboarded) return;
 
     const tick = () => {
-      const date = todayKey();
-      const plans = planDay(stack, profile.slotTimes);
+      const d = new Date();
+      const date = logicalDate(d, profile.rhythm);
+      const nowMin = nowInDay(d, profile.rhythm);
+      const { times } = effectiveSlotTimes(profile, days, date);
+      const plans = planDay(stack, times, nowMin, profile.rhythm.wake);
       const remaining = remainingKeys(stack, logs, date);
-      const nxt = nextSlot(plans, remaining);
+      const nxt = nextSlot(plans, remaining, nowMin);
       if (!nxt) return;
-      const nowMin = minutesNow();
       const lead = profile.reminderLeadMinutes;
       const key = `${date}:${nxt.slot.id}`;
       if (fired.current.has(key)) return;
@@ -73,7 +78,7 @@ export function ReminderEngine({ now }: { now: number }) {
     tick();
     const id = window.setInterval(tick, 30_000);
     return () => window.clearInterval(id);
-  }, [stack, logs, profile]);
+  }, [stack, logs, profile, days]);
 
   return null;
 }

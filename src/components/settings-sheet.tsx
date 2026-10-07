@@ -1,18 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
+import { Chip, HabitsForm, RhythmForm, Section, TimeInput } from "@/components/fields";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Confirm, Screen } from "@/components/ui/screen";
 import { Switch } from "@/components/ui/switch";
 import { exportBackup, importBackup } from "@/lib/backup";
 import { DEFAULT_COACH_MODEL } from "@/lib/coach";
+import { useNav } from "@/lib/nav";
 import {
   exactAlarmsAllowed,
   openExactAlarmSettings,
@@ -22,248 +18,247 @@ import {
 import { isNative } from "@/lib/platform";
 import { useSupplime } from "@/lib/store";
 import { SLOTS } from "@/lib/types";
-import { cn } from "@/lib/utils";
 
 const LEAD_OPTIONS = [0, 5, 10, 15, 30];
 const NAG_OPTIONS = [0, 15, 30, 60];
+const TARGETS = [0.7, 0.8, 0.85, 0.9, 1];
 
-export function SettingsSheet({
-  open,
-  onOpenChange,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-}) {
+export function SettingsScreen() {
+  const close = useNav((s) => s.close);
   const profile = useSupplime((s) => s.profile);
   const setNotifications = useSupplime((s) => s.setNotifications);
   const setSlotTime = useSupplime((s) => s.setSlotTime);
   const setProfile = useSupplime((s) => s.setProfile);
+  const setRhythm = useSupplime((s) => s.setRhythm);
   const resetAll = useSupplime((s) => s.resetAll);
   const [exact, setExact] = useState(true);
   const [confirmReset, setConfirmReset] = useState(false);
+  const [fineTune, setFineTune] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (!open) {
-      setConfirmReset(false);
-      return;
-    }
     void exactAlarmsAllowed().then(setExact);
-  }, [open]);
+  }, []);
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Settings</DialogTitle>
-          <DialogDescription>Reminders, meal times, backups and the coach.</DialogDescription>
-        </DialogHeader>
+    <Screen onClose={close} title="Settings" subtitle={`Supplime ${__APP_VERSION__}`}>
+      <div className="space-y-4">
+        <Section title="You">
+          <Input
+            value={profile.displayName}
+            onChange={(e) => setProfile({ displayName: e.target.value })}
+            placeholder="Your name"
+          />
+          <Input
+            value={profile.why}
+            onChange={(e) => setProfile({ why: e.target.value })}
+            placeholder="Why you're doing this"
+          />
+        </Section>
 
-        <div className="space-y-6">
-          <section className="space-y-4">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <Label htmlFor="notes-on">Reminders</Label>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {isNative()
-                    ? "Android notifications, even when Supplime is closed. Tap “Took them” right from the notification."
-                    : "Fires while this tab is open."}
-                </p>
-              </div>
-              <Switch
-                id="notes-on"
-                checked={profile.notifications}
-                onCheckedChange={async (on) => {
-                  if (on) {
-                    const ok = await requestNotificationPermission();
-                    setNotifications(ok);
-                    if (!ok)
-                      toast.error("Notifications are blocked. Allow them in Android settings.");
-                    else toast("Reminders on");
-                  } else setNotifications(false);
-                }}
-              />
-            </div>
-
-            {profile.notifications && isNative() && !exact && (
-              <div className="rounded-lg bg-secondary p-3 text-sm">
-                <p>
-                  Android may delay reminders by a few minutes unless Supplime may use exact alarms.
-                </p>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="mt-2"
-                  onClick={async () => {
-                    await openExactAlarmSettings();
-                    setExact(await exactAlarmsAllowed());
-                    void syncReminders();
-                  }}
-                >
-                  Allow exact timing
-                </Button>
-              </div>
-            )}
-
-            <ChoiceRow
-              label="Remind me"
-              options={LEAD_OPTIONS}
-              value={profile.reminderLeadMinutes}
-              format={(n) => (n === 0 ? "On time" : `${n} min early`)}
-              onChange={(n) => setProfile({ reminderLeadMinutes: n })}
-            />
-            <ChoiceRow
-              label="Nudge again if not logged"
-              options={NAG_OPTIONS}
-              value={profile.nagMinutes}
-              format={(n) => (n === 0 ? "Off" : `${n} min`)}
-              onChange={(n) => setProfile({ nagMinutes: n })}
-            />
-          </section>
-
-          <section>
-            <p className="text-sm font-medium">Window times</p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Set these to when you actually eat.
-            </p>
-            <div className="mt-2 space-y-2">
+        <Section
+          title="Your day"
+          hint="Changing this moves your windows. Fine-tune single windows below."
+        >
+          <RhythmForm value={profile.rhythm} onChange={setRhythm} />
+          <button
+            type="button"
+            className="text-sm underline"
+            onClick={() => setFineTune((v) => !v)}
+          >
+            {fineTune ? "Hide" : "Fine-tune"} single windows
+          </button>
+          {fineTune && (
+            <div className="space-y-2">
               {SLOTS.map((slot) => (
                 <div key={slot.id} className="flex items-center justify-between gap-3">
                   <Label htmlFor={`time-${slot.id}`}>{slot.label}</Label>
-                  <Input
+                  <TimeInput
                     id={`time-${slot.id}`}
-                    type="time"
-                    className="w-32"
                     value={profile.slotTimes[slot.id]}
-                    onChange={(e) => e.target.value && setSlotTime(slot.id, e.target.value)}
+                    onChange={(t) => setSlotTime(slot.id, t)}
                   />
                 </div>
               ))}
             </div>
-          </section>
+          )}
+        </Section>
 
-          <section className="rounded-lg bg-secondary p-3">
-            <p className="font-medium">Backup</p>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Everything stays on this phone. Save a backup to Drive or email now and then, and
-              always before switching phones or reinstalling.
-            </p>
-            <div className="mt-3 flex gap-2">
-              <Button
-                variant="outline"
-                className="flex-1"
-                onClick={async () => {
-                  try {
-                    await exportBackup();
-                  } catch (err) {
-                    if (!String(err).toLowerCase().includes("cancel"))
-                      toast.error("Could not export the backup.");
-                  }
-                }}
+        <Section title="Habits">
+          <HabitsForm value={profile.habits} onChange={(habits) => setProfile({ habits })} />
+        </Section>
+
+        <Section
+          title="Weekly target"
+          hint="Share of planned doses you aim for. Hitting it earns +75 XP."
+        >
+          <div className="flex flex-wrap gap-2">
+            {TARGETS.map((t) => (
+              <Chip
+                key={t}
+                on={profile.weeklyTarget === t}
+                onClick={() => setProfile({ weeklyTarget: t })}
               >
-                Export
-              </Button>
-              <Button variant="outline" className="flex-1" onClick={() => fileRef.current?.click()}>
-                Restore
-              </Button>
-              <input
-                ref={fileRef}
-                type="file"
-                accept="application/json,.json"
-                className="sr-only"
-                onChange={async (e) => {
-                  const file = e.target.files?.[0];
-                  e.target.value = "";
-                  if (!file) return;
-                  const ok = await importBackup(file);
-                  if (ok) {
-                    toast("Backup restored");
-                    onOpenChange(false);
-                  } else toast.error("That file isn't a Supplime backup.");
-                }}
-              />
-            </div>
-          </section>
+                {Math.round(t * 100)}%
+              </Chip>
+            ))}
+          </div>
+        </Section>
 
-          <section className="space-y-3">
+        <Section title="Reminders">
+          <div className="flex items-center justify-between gap-3">
             <div>
-              <p className="text-sm font-medium">Coach (optional)</p>
+              <Label htmlFor="notes-on">Notifications</Label>
               <p className="mt-1 text-xs text-muted-foreground">
-                Your own xAI API key from console.x.ai. It is stored only on this phone and is never
-                written into backups.
+                {isNative()
+                  ? "Even when Supplime is closed, with Took them / In 1 hour / Not with me."
+                  : "Fires while this tab is open."}
               </p>
             </div>
-            <Input
-              type="password"
-              autoComplete="off"
-              placeholder="xai-…"
-              value={profile.coachKey ?? ""}
-              onChange={(e) => setProfile({ coachKey: e.target.value.trim() || undefined })}
+            <Switch
+              id="notes-on"
+              checked={profile.notifications}
+              onCheckedChange={async (on) => {
+                if (on) {
+                  const ok = await requestNotificationPermission();
+                  setNotifications(ok);
+                  if (!ok)
+                    toast.error("Notifications are blocked. Allow them in Android settings.");
+                } else setNotifications(false);
+              }}
             />
-            <div className="flex items-center justify-between gap-3">
-              <Label htmlFor="coach-model">Model</Label>
-              <Input
-                id="coach-model"
-                className="w-40"
-                placeholder={DEFAULT_COACH_MODEL}
-                value={profile.coachModel ?? ""}
-                onChange={(e) => setProfile({ coachModel: e.target.value.trim() || undefined })}
-              />
+          </div>
+          {profile.notifications && isNative() && !exact && (
+            <div className="rounded-xl bg-secondary p-3 text-sm">
+              <p>
+                Android may delay reminders by a few minutes unless Supplime may use exact alarms.
+              </p>
+              <Button
+                size="sm"
+                variant="outline"
+                className="mt-2"
+                onClick={async () => {
+                  await openExactAlarmSettings();
+                  setExact(await exactAlarmsAllowed());
+                  void syncReminders();
+                }}
+              >
+                Allow exact timing
+              </Button>
             </div>
-          </section>
+          )}
+          <div>
+            <p className="text-sm font-medium">Remind me</p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {LEAD_OPTIONS.map((n) => (
+                <Chip
+                  key={n}
+                  on={profile.reminderLeadMinutes === n}
+                  onClick={() => setProfile({ reminderLeadMinutes: n })}
+                >
+                  {n === 0 ? "On time" : `${n} min early`}
+                </Chip>
+              ))}
+            </div>
+          </div>
+          <div>
+            <p className="text-sm font-medium">Nudge again if not logged</p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {NAG_OPTIONS.map((n) => (
+                <Chip
+                  key={n}
+                  on={profile.nagMinutes === n}
+                  onClick={() => setProfile({ nagMinutes: n })}
+                >
+                  {n === 0 ? "Off" : `after ${n} min`}
+                </Chip>
+              ))}
+            </div>
+          </div>
+        </Section>
 
-          <Button
-            variant="ghost"
-            className="w-full text-destructive"
-            onClick={() => {
-              if (!confirmReset) {
-                setConfirmReset(true);
-                return;
-              }
-              resetAll();
-              onOpenChange(false);
-            }}
-          >
-            {confirmReset ? "Tap again: erase everything on this phone" : "Reset this device"}
-          </Button>
-          <p className="text-center text-xs text-muted-foreground">Supplime {__APP_VERSION__}</p>
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-}
+        <Section
+          title="Backup"
+          hint="Everything stays on this phone. Export now and then, and always before changing phones."
+        >
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              className="flex-1"
+              onClick={async () => {
+                try {
+                  await exportBackup();
+                } catch (err) {
+                  if (!String(err).toLowerCase().includes("cancel"))
+                    toast.error("Could not export the backup.");
+                }
+              }}
+            >
+              Export
+            </Button>
+            <Button variant="outline" className="flex-1" onClick={() => fileRef.current?.click()}>
+              Restore
+            </Button>
+            <input
+              ref={fileRef}
+              type="file"
+              accept="application/json,.json"
+              className="sr-only"
+              onChange={async (e) => {
+                const file = e.target.files?.[0];
+                e.target.value = "";
+                if (!file) return;
+                if (await importBackup(file)) {
+                  toast("Backup restored");
+                  close();
+                } else toast.error("That file isn't a Supplime backup.");
+              }}
+            />
+          </div>
+        </Section>
 
-function ChoiceRow({
-  label,
-  options,
-  value,
-  format,
-  onChange,
-}: {
-  label: string;
-  options: number[];
-  value: number;
-  format: (n: number) => string;
-  onChange: (n: number) => void;
-}) {
-  return (
-    <div>
-      <p className="text-sm font-medium">{label}</p>
-      <div className="mt-2 flex flex-wrap gap-2">
-        {options.map((n) => (
-          <button
-            key={n}
-            type="button"
-            onClick={() => onChange(n)}
-            className={cn(
-              "h-10 rounded-full px-3 text-xs font-medium",
-              value === n ? "bg-primary text-primary-foreground" : "bg-secondary",
-            )}
-          >
-            {format(n)}
-          </button>
-        ))}
+        <Section
+          title="Coach (optional)"
+          hint="Your own xAI key from console.x.ai. Stored only on this phone, never in backups."
+        >
+          <Input
+            type="password"
+            autoComplete="off"
+            placeholder="xai-…"
+            value={profile.coachKey ?? ""}
+            onChange={(e) => setProfile({ coachKey: e.target.value.trim() || undefined })}
+          />
+          <div className="flex items-center justify-between gap-3">
+            <Label htmlFor="coach-model">Model</Label>
+            <Input
+              id="coach-model"
+              className="w-40"
+              placeholder={DEFAULT_COACH_MODEL}
+              value={profile.coachModel ?? ""}
+              onChange={(e) => setProfile({ coachModel: e.target.value.trim() || undefined })}
+            />
+          </div>
+        </Section>
+
+        <Button
+          variant="ghost"
+          className="w-full text-destructive"
+          onClick={() => setConfirmReset(true)}
+        >
+          Erase everything on this phone
+        </Button>
       </div>
-    </div>
+      <Confirm
+        open={confirmReset}
+        onClose={() => setConfirmReset(false)}
+        title="Erase everything?"
+        body="Your stack, history, journey and settings are deleted from this phone. Export a backup first if you might want them back."
+        confirmLabel="Erase"
+        onConfirm={() => {
+          resetAll();
+          close();
+        }}
+      />
+    </Screen>
   );
 }

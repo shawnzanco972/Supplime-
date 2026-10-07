@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
 const NAV: { to: Tab; label: string; icon: typeof Leaf }[] = [
   { to: "today", label: "Today", icon: Leaf },
   { to: "stack", label: "Stack", icon: BookOpen },
-  { to: "record", label: "Record", icon: Sparkles },
+  { to: "journey", label: "Journey", icon: Sparkles },
   { to: "body", label: "Body", icon: Activity },
 ];
 

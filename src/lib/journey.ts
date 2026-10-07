@@ -1,0 +1,299 @@
+import { nextStep, profileFor } from "./knowledge";
+import { currentStep, daysAtDose, daysOn, effectHistory, firstFelt, latestEffect } from "./stats";
+import type { Decision, DecisionKind, DoseLog, EffectLog, StackItem } from "./types";
+import { addDays, daysBetween, todayKey } from "./utils";
+
+export type MilestoneKey = "start" | "first-signs" | "typical" | "dose-review" | "evaluate";
+
+export type Milestone = {
+  key: MilestoneKey;
+  /** Day number on this supplement (day 1 = start date). */
+  day: number;
+  date: string;
+  label: string;
+  detail: string;
+  reached: boolean;
+};
+
+export type Phase = "building" | "window" | "working" | "review" | "evaluate" | "stopped";
+
+export type Recommendation = {
+  kind: DecisionKind;
+  title: string;
+  why: string;
+  to?: number;
+};
+
+export type Journey = ReturnType<typeof journeyFor>;
+
+/**
+ * The full "how long" picture for one supplement: where you are on its timeline,
+ * what comes next, whether it is time to change the dose or decide if it is worth
+ * keeping, and what Supplime would recommend.
+ */
+export function journeyFor(input: {
+  item: StackItem;
+  logs: DoseLog[];
+  effects: EffectLog[];
+  decisions: Decision[];
+  today?: string;
+}) {
+  const { item, logs, effects, decisions } = input;
+  const today = input.today ?? todayKey();
+  const p = profileFor(item);
+  const day = daysOn(item, today);
+  const atDose = daysAtDose(item, today);
+  const step = currentStep(item);
+  const stepStart = step.date > item.startedAt ? step.date : item.startedAt;
+  const stepStartDay = daysBetween(item.startedAt, stepStart) + 1;
+
+  // How consistently you took it at the current dose (since you started logging it).
+  const mine = logs.filter(
+    (l) => l.itemId === item.id && l.status === "taken" && l.date >= stepStart,
+  );
+  const takenDates = new Set(mine.map((l) => l.date));
+  const firstLog = [...takenDates].sort()[0];
+  const trackedFrom = firstLog && firstLog > stepStart ? firstLog : stepStart;
+  const trackedDays = firstLog ? daysBetween(trackedFrom, today) + 1 : 0;
+  const consistency = trackedDays > 0 ? Math.min(1, takenDates.size / trackedDays) : null;
+
+  const felt = firstFelt(item, effects);
+  const last = latestEffect(item, effects);
+  const recentSide = effectHistory(item, effects)
+    .slice(-3)
+    .some((e) => e.sideEffects && daysBetween(e.date, today) <= 14);
+
+  const itemDecisions = decisions
+    .filter((d) => d.itemId === item.id)
+    .sort((a, b) => a.date.localeCompare(b.date));
+  const lastDecision = itemDecisions.at(-1);
+
+  // When is the next "keep or not" verdict due?
+  const baseEval = addDays(item.startedAt, p.evaluateDay - 1);
+  let nextEval = baseEval;
+  if (lastDecision) {
+    const wait =
+      lastDecision.kind === "more-time"
+        ? 14
+        : lastDecision.kind === "keep"
+          ? 60
+          : lastDecision.kind === "step-up" || lastDecision.kind === "lower"
+            ? Math.max(p.minDaysBeforeIncrease, 14)
+            : 9999;
+    const after = addDays(lastDecision.date, wait);
+    nextEval = after > baseEval ? after : baseEval;
+  }
+  const doseReviewDate = addDays(stepStart, p.minDaysBeforeIncrease - 1);
+  const evaluateDue = !item.archived && today >= nextEval;
+  const doseReviewOpen = today >= doseReviewDate;
+
+  const dateOf = (d: number) => addDays(item.startedAt, d - 1);
+  const milestones: Milestone[] = [
+    {
+      key: "start",
+      day: 1,
+      date: item.startedAt,
+      label: "Started",
+      detail: `Day 1 at ${item.doseHistory[0]?.amount ?? item.amount} ${item.unit}`,
+      reached: true,
+    },
+    {
+      key: "first-signs",
+      day: p.firstSignsDay,
+      date: dateOf(p.firstSignsDay),
+      label: p.kind === "acute" ? "First dose felt" : "First signs possible",
+      detail:
+        p.kind === "acute" && p.minutes
+          ? `Usually ${p.minutes.min}–${p.minutes.max} min after a dose`
+          : `Some people notice something from day ${p.firstSignsDay}`,
+      reached: day >= p.firstSignsDay,
+    },
+    {
+      key: "typical",
+      day: p.typicalDay,
+      date: dateOf(p.typicalDay),
+      label: "Most people feel it",
+      detail: `Typical onset around day ${p.typicalDay} (range ${p.firstSignsDay}–${p.windowEndDay})`,
+      reached: day >= p.typicalDay,
+    },
+    {
+      key: "dose-review",
+      day: stepStartDay + p.minDaysBeforeIncrease - 1,
+      date: doseReviewDate,
+      label: "Dose change unlocks",
+      detail: `Give each dose at least ${p.minDaysBeforeIncrease} days before changing it`,
+      reached: doseReviewOpen,
+    },
+    {
+      key: "evaluate",
+      day: daysBetween(item.startedAt, nextEval) + 1,
+      date: nextEval,
+      label: lastDecision ? "Next check" : "Verdict day",
+      detail: "Decide: keep, adjust the dose, or stop",
+      reached: evaluateDue,
+    },
+  ];
+  milestones.sort((a, b) => a.day - b.day);
+  const next = milestones.find((m) => !m.reached) ?? null;
+
+  const working = !!last && last.rating >= 2 && !recentSide;
+  let phase: Phase;
+  if (item.archived) phase = "stopped";
+  else if (evaluateDue) phase = "evaluate";
+  else if (working) phase = "working";
+  else if (day >= p.firstSignsDay)
+    phase = doseReviewOpen && day >= p.typicalDay ? "review" : "window";
+  else phase = "building";
+
+  const recommendation = recommend({
+    item,
+    day,
+    atDose,
+    consistency,
+    trackedDays,
+    working,
+    recentSide,
+    lastRating: last?.rating ?? null,
+    checkIns: effectHistory(item, effects).length,
+    noStepUp: p.noStepUp,
+    minDays: p.minDaysBeforeIncrease,
+    typicalDay: p.typicalDay,
+    evaluateDay: p.evaluateDay,
+  });
+
+  return {
+    item,
+    profile: p,
+    day,
+    atDose,
+    stepStart,
+    takenDays: takenDates.size,
+    trackedDays,
+    consistency,
+    felt,
+    last,
+    recentSide,
+    milestones,
+    next,
+    phase,
+    evaluateDue,
+    nextEval,
+    doseReviewDate,
+    doseReviewOpen,
+    recommendation,
+    decisions: itemDecisions,
+    /** 0–1 position on the timeline to the verdict day, for progress bars. */
+    progress: Math.min(1, day / Math.max(p.evaluateDay, daysBetween(item.startedAt, nextEval) + 1)),
+  };
+}
+
+function recommend(x: {
+  item: StackItem;
+  day: number;
+  atDose: number;
+  consistency: number | null;
+  trackedDays: number;
+  working: boolean;
+  recentSide: boolean;
+  lastRating: number | null;
+  minDays: number;
+  typicalDay: number;
+  evaluateDay: number;
+  checkIns: number;
+  noStepUp?: string;
+}): Recommendation {
+  const { item } = x;
+  const dose = `${item.amount} ${item.unit}`;
+  if (x.recentSide) {
+    const lower = nextStep(item, -1);
+    return lower
+      ? {
+          kind: "lower",
+          to: lower,
+          title: `Lower to ${lower} ${item.unit}`,
+          why: "You logged side effects recently. A smaller dose often keeps the benefit without them.",
+        }
+      : {
+          kind: "stop",
+          title: "Stop and reassess",
+          why: "You logged side effects and this is already the lowest usual dose.",
+        };
+  }
+  if (x.working) {
+    return {
+      kind: "keep",
+      title: `Keep ${dose}`,
+      why: "It's working. There's no reason to raise a dose that already does the job.",
+    };
+  }
+  if (x.consistency !== null && x.trackedDays >= 5 && x.consistency < 0.7) {
+    return {
+      kind: "more-time",
+      title: "Not a fair test yet",
+      why: `You took it on ${Math.round(x.consistency * 100)}% of days at this dose. Missed days delay the effect, so try 2 more consistent weeks before judging it.`,
+    };
+  }
+  if (x.atDose < x.minDays) {
+    return {
+      kind: "more-time",
+      title: "Too early to change",
+      why: `Day ${x.atDose} at ${dose}. Give it at least ${x.minDays} days before changing the dose.`,
+    };
+  }
+  if (x.day < x.typicalDay) {
+    return {
+      kind: "more-time",
+      title: "Give it more time",
+      why: `Most people notice it around day ${x.typicalDay}; you're on day ${x.day}.`,
+    };
+  }
+  if (x.checkIns === 0) {
+    return {
+      kind: "more-time",
+      title: "Check in first",
+      why: "You haven't rated how it feels yet. One honest check-in is what a dose decision needs.",
+    };
+  }
+  if (x.noStepUp) {
+    return x.day >= x.evaluateDay && (x.lastRating ?? 0) === 0
+      ? {
+          kind: "stop",
+          title: "Consider stopping",
+          why: `No effect after ${x.day} days. ${x.noStepUp}`,
+        }
+      : { kind: "keep", title: `Keep ${dose}, adjust timing`, why: x.noStepUp };
+  }
+  const up = nextStep(item, 1);
+  if (up) {
+    return {
+      kind: "step-up",
+      to: up,
+      title: `Step up to ${up} ${item.unit}`,
+      why: `${x.atDose} days at ${dose} with ${x.lastRating === 1 ? "only a maybe" : "no clear effect"}, and you're below the usual ceiling.`,
+    };
+  }
+  if (x.day >= x.evaluateDay) {
+    return {
+      kind: "stop",
+      title: "Consider stopping",
+      why: `No clear effect after ${x.day} days, even at ${dose}. It may simply not be for you — that's a useful result too.`,
+    };
+  }
+  return {
+    kind: "more-time",
+    title: "Stay the course",
+    why: `Hold ${dose} until your verdict day.`,
+  };
+}
+
+export const PHASE_COPY: Record<
+  Phase,
+  { label: string; tone: "muted" | "accent" | "warn" | "good" }
+> = {
+  building: { label: "Building up", tone: "muted" },
+  window: { label: "In the onset window", tone: "accent" },
+  working: { label: "Working", tone: "good" },
+  review: { label: "Dose review open", tone: "warn" },
+  evaluate: { label: "Verdict due", tone: "warn" },
+  stopped: { label: "Stopped", tone: "muted" },
+};

@@ -10,7 +10,7 @@ no server) and is packaged as an APK with [Capacitor](https://capacitorjs.com).
 ## Install on your phone
 
 1. Open the [latest release](../../releases/latest) on your Android phone.
-2. Tap `Supplime-1.0.x.apk`. When Android asks, allow your browser to *install unknown apps*.
+2. Tap the `.apk`. When Android asks, allow your browser to *install unknown apps*.
 3. Open Supplime, pick your goals and supplements, and turn reminders on.
 
 Every push to GitHub builds a new APK (see *Actions*). New builds install over old ones and
@@ -18,28 +18,42 @@ keep your data.
 
 ## What it does
 
-- **Today**: your supplements grouped by meal window and by food timing (empty stomach,
-  with food, after food). Take, skip, or *Take all* for a window.
-- **Real reminders**: Android notifications fire even when the app is closed, with
-  **Took them** and **Snooze 15 min** buttons. You can get them on time or a few minutes
-  early, plus an optional nudge if you haven't logged a window. They survive reboots.
-  Windows you have already logged stay quiet.
-- **Onset tracking**: for each supplement you see days on it, days actually taken, and the
-  typical onset window from the built-in guide of 25 supplements. Near that window, Today asks
-  *"Is it working?"* (Nothing yet / Maybe / Noticeable / Clear effect). Supplime records the
-  day you first felt it and shows it against the typical window on **Record**.
-- **Dose steps**: changing a dose starts a new step with its own *days at this dose* clock.
-  Each item shows when its dose review is due, along with the guide's step-up advice and
-  typical ceiling. Once you have logged a clear effect, it tells you to hold the dose instead.
-- **Started on**: backdate supplements you were already taking so the clocks are right.
-- **Stock**: counts servings down as you log them, warns in-app, and sends one notification
-  when a bottle is about 10 days from empty (configurable).
-- **Body**: sleep, resting HR, HRV, energy, mood and focus, typed in or imported from a Fitbit
-  CSV.
-- **Backup**: Settings → Export opens the share sheet (Drive, email…). Restore from the same
-  file.
-- **Coach (optional)**: paste your own xAI (Grok) API key in Settings. The coach gets your
-  dose history and effect check-ins, so its dose advice is based on your own data.
+**How long until it works.** Every supplement in the guide (30 of them) comes with a timeline:
+the day you might first notice it, the day most people do, the minimum days at one dose before
+changing it, and a verdict day to decide keep / adjust / stop. Journey shows each one as an
+experiment on that timeline, marks the day *you* first felt it, and locks dose changes until
+the minimum time has passed. For your own products you set those numbers yourself.
+
+**Verdicts, not guesswork.** On verdict day Supplime looks at your consistency, your check-ins
+and the dose ladder and suggests: keep, step up, lower, give it more time, or stop. It won't
+suggest changing a dose before you've checked in, calls out an unfair test when you missed
+too many days, and never pushes melatonin up. Stopped supplements stay as past experiments
+with the verdict and your notes.
+
+**Built around your day, not 8 am breakfast.** Tell it when you wake, when you first and last
+eat, and when you go to bed. Windows follow that ("First meal" can be 1 pm), late nights count
+as the same day, and with *flexible wake* the morning reminders wait for **I'm up**, which also
+moves the morning plan.
+
+**Habit flags.** Each dose shows what matters: take with food, empty stomach, pairs with your
+coffee, keep away from coffee, no alcohol 4 h before melatonin, stimulating late in the day,
+supplements that compete for absorption. Log a coffee or a drink on Today and the flags react.
+
+**Missed doses handled properly.** "Not now" asks why — later, not with me, forgot, skip — and
+answers per supplement: slow builders like Lion's Mane get a catch-up reminder with your next
+meal once you're home; same-day ones like L-theanine don't need catching up; melatonin is
+skipped if it's too late. Notifications have **Took them / In 1 hour / Not with me** buttons.
+
+**Motivation (Octalysis).** XP and levels for real actions, a streak protected by earned
+shields, a weekly target, three small quests a day, a field note that unlocks each complete
+day, your "why" on Today, and notes to your future self on each verdict. Honest logging of a
+miss earns XP too.
+
+**Adding from iHerb.** In the iHerb app tap *Share → Supplime*, or paste a product link or
+title. Supplime reads the brand, dose and capsule count and matches it to the guide.
+
+Also: stock counting with a low-bottle alert, body log (sleep, HRV, mood…) with Fitbit CSV
+import, JSON backup/restore, and an optional coach using your own xAI key.
 
 Supplime is a personal tracker, not medical advice.
 

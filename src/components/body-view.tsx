@@ -7,8 +7,8 @@ import { Slider } from "@/components/ui/slider";
 import { Textarea } from "@/components/ui/textarea";
 import { parseFitbitCsv } from "@/lib/fitbit";
 import { bodyAverages, dayAdherence } from "@/lib/stats";
-import { useSupplime } from "@/lib/store";
-import { addDays, formatShortDate, todayKey } from "@/lib/utils";
+import { appToday, useSupplime } from "@/lib/store";
+import { addDays, formatShortDate } from "@/lib/utils";
 import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
 export function BodyView() {
@@ -17,7 +17,7 @@ export function BodyView() {
   const logs = useSupplime((s) => s.logs);
   const logBody = useSupplime((s) => s.logBody);
   const importBody = useSupplime((s) => s.importBody);
-  const today = todayKey();
+  const today = appToday();
   const existing = body.find((b) => b.date === today);
   const [sleepHours, setSleepHours] = useState(String(existing?.sleepHours ?? "7.5"));
   const [sleepScore, setSleepScore] = useState(String(existing?.sleepScore ?? ""));

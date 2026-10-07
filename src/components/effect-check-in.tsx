@@ -1,14 +1,15 @@
 import { toast } from "sonner";
 import { EFFECT_COPY, effectWindow, latestEffect } from "@/lib/stats";
-import { useSupplime } from "@/lib/store";
+import { XP } from "@/lib/game";
+import { appToday, useSupplime } from "@/lib/store";
 import type { EffectRating, StackItem } from "@/lib/types";
-import { cn, formatShortDate, todayKey } from "@/lib/utils";
+import { cn, formatShortDate } from "@/lib/utils";
 
 /** "Do you feel it?" — four taps, one per day per supplement. */
 export function EffectCheckIn({ item, compact = false }: { item: StackItem; compact?: boolean }) {
   const effects = useSupplime((s) => s.effects);
   const logEffect = useSupplime((s) => s.logEffect);
-  const today = todayKey();
+  const today = appToday();
   const last = latestEffect(item, effects);
   const todays = last?.date === today ? last : null;
   const w = effectWindow(item, today);
@@ -38,11 +39,11 @@ export function EffectCheckIn({ item, compact = false }: { item: StackItem; comp
             type="button"
             onClick={() => {
               logEffect(item.id, rating as EffectRating);
-              toast(`${item.name}: ${label}`, {
+              toast(`${item.name}: ${label}${todays ? "" : ` · +${XP.checkIn} XP`}`, {
                 description:
                   rating >= 2
                     ? `Noted on day ${w.elapsed}. No need to raise a dose that already works.`
-                    : "Noted. Supplime will ask again in a few days.",
+                    : `Noted on day ${w.elapsed}. Most people feel it around day ${w.typicalDay}.`,
               });
             }}
             className={cn(
@@ -56,6 +57,17 @@ export function EffectCheckIn({ item, compact = false }: { item: StackItem; comp
           </button>
         ))}
       </div>
+      {todays && (
+        <label className="mt-2 flex min-h-9 items-center gap-2 text-xs text-muted-foreground">
+          <input
+            type="checkbox"
+            className="size-4 accent-[var(--color-primary)]"
+            checked={!!todays.sideEffects}
+            onChange={(e) => logEffect(item.id, todays.rating, { sideEffects: e.target.checked })}
+          />
+          Side effects today (headache, stomach, grogginess…)
+        </label>
+      )}
     </div>
   );
 }

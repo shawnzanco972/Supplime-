@@ -1,4 +1,4 @@
-import { CATALOG_BY_ID } from "./catalog";
+import { profileFor } from "./knowledge";
 import { activeStack, scheduledDoses } from "./protocol";
 import type { BadgeId, BodyLog, DoseLog, DoseStep, EffectLog, StackItem } from "./types";
 import { addDays, daysBetween, todayKey } from "./utils";
@@ -70,9 +70,9 @@ export const EFFECT_COPY = ["Nothing yet", "Maybe", "Noticeable", "Clear effect"
  * and you have not checked in for this item in the last few days.
  */
 export function needsCheckIn(item: StackItem, effects: EffectLog[], today = todayKey()) {
-  if (item.paused) return false;
+  if (item.paused || item.archived) return false;
   const w = effectWindow(item, today);
-  const near = w.kind === "acute" ? w.elapsed >= 2 : w.elapsed >= Math.max(3, w.onsetMin - 3);
+  const near = w.kind === "acute" ? w.elapsed >= 2 : w.elapsed >= Math.max(3, w.onsetMin - 2);
   if (!near) return false;
   const last = latestEffect(item, effects);
   if (!last) return true;
@@ -95,72 +95,68 @@ export function isLowStock(item: StackItem) {
 }
 
 export function effectWindow(item: StackItem, today = todayKey()) {
-  const catalog = item.catalogId ? CATALOG_BY_ID[item.catalogId] : undefined;
+  const p = profileFor(item);
   const elapsed = daysOn(item, today);
   const atDose = daysAtDose(item, today);
-  if (!catalog) {
-    const waitDays = 14;
-    return {
-      elapsed,
-      atDose,
-      onsetMin: 14,
-      onsetMax: 21,
-      kind: "cumulative" as const,
-      label: `${elapsed} day${elapsed === 1 ? "" : "s"} on this`,
-      detail: "Log how you feel. Personal notes beat generic timelines for custom items.",
-      progress: Math.min(1, elapsed / 21),
-      readyToIncrease: atDose >= waitDays,
-      reviewOn: addDays(
-        currentStep(item).date > item.startedAt ? currentStep(item).date : item.startedAt,
-        waitDays - 1,
-      ),
-      increaseGuidance: "Give a new product two weeks at one dose before changing it.",
-    };
-  }
-  const min = catalog.onset.days.min;
-  const max = catalog.onset.days.max;
-  const progress = Math.min(1, elapsed / max);
   let label: string;
-  if (catalog.onset.kind === "acute" && catalog.onset.minutes) {
-    label = `Felt in ${catalog.onset.minutes.min}–${catalog.onset.minutes.max} min`;
-  } else if (elapsed < min) {
-    const left = min - elapsed;
-    label = `${left} day${left === 1 ? "" : "s"} until the typical window`;
-  } else if (elapsed <= max) {
-    label = `Inside the typical window (days ${min}–${max})`;
+  if (p.kind === "acute" && p.minutes && elapsed <= p.windowEndDay) {
+    label = `Felt in ${p.minutes.min}–${p.minutes.max} min; judge it over ${p.windowEndDay} days`;
+  } else if (elapsed < p.firstSignsDay) {
+    const left = p.firstSignsDay - elapsed;
+    label = `${left} day${left === 1 ? "" : "s"} until first signs are possible`;
+  } else if (elapsed < p.typicalDay) {
+    const left = p.typicalDay - elapsed;
+    label = `Early days: most people notice it in ${left} more day${left === 1 ? "" : "s"}`;
+  } else if (elapsed <= p.windowEndDay) {
+    label = `Inside the usual window (days ${p.firstSignsDay}–${p.windowEndDay})`;
   } else {
-    label = `Past the usual onset window`;
+    label = "Past the usual onset window";
   }
   const stepStart =
     currentStep(item).date > item.startedAt ? currentStep(item).date : item.startedAt;
   return {
     elapsed,
     atDose,
-    onsetMin: min,
-    onsetMax: max,
-    kind: catalog.onset.kind,
+    onsetMin: p.firstSignsDay,
+    onsetMax: p.windowEndDay,
+    typicalDay: p.typicalDay,
+    evaluateDay: p.evaluateDay,
+    minDaysBeforeIncrease: p.minDaysBeforeIncrease,
+    kind: p.kind,
     label,
-    detail: catalog.onset.note,
-    progress,
-    readyToIncrease: atDose >= catalog.increaseAfterDays,
-    reviewOn: addDays(stepStart, catalog.increaseAfterDays - 1),
-    increaseGuidance: catalog.increaseGuidance,
-    catalog,
+    detail: p.note,
+    progress: Math.min(1, elapsed / p.evaluateDay),
+    readyToIncrease: atDose >= p.minDaysBeforeIncrease,
+    reviewOn: addDays(stepStart, p.minDaysBeforeIncrease - 1),
+    increaseGuidance: p.increaseGuidance,
+    catalog: p.catalog,
   };
 }
+
+/** Doses that were planned on a given date (respecting start and stop dates). */
+export function dosesOn(stack: StackItem[], date: string) {
+  return scheduledDoses(
+    stack.map((item) =>
+      item.archived && item.archived.date > date ? { ...item, archived: undefined } : item,
+    ),
+  ).filter((d) => d.item.startedAt <= date);
+}
+
+const RESOLVED = new Set(["taken", "skipped", "missed"]);
 
 export function logsForDate(logs: DoseLog[], date: string) {
   return logs.filter((log) => log.date === date);
 }
 
+/** Doses still open for a date (not taken, skipped or missed; deferred ones stay open). */
 export function remainingKeys(stack: StackItem[], logs: DoseLog[], date: string) {
   const taken = new Set(
     logsForDate(logs, date)
-      .filter((log) => log.status === "taken" || log.status === "skipped")
+      .filter((log) => RESOLVED.has(log.status))
       .map((log) => `${log.itemId}:${log.slot}`),
   );
   const left = new Set<string>();
-  for (const dose of scheduledDoses(stack)) {
+  for (const dose of dosesOn(stack, date)) {
     const key = `${dose.item.id}:${dose.slot}`;
     if (!taken.has(key)) left.add(key);
   }
@@ -170,15 +166,18 @@ export function remainingKeys(stack: StackItem[], logs: DoseLog[], date: string)
 export function dayAdherence(stack: StackItem[], logs: DoseLog[], date: string) {
   // Only count items that had already started on that date, so adding something new
   // does not retroactively break past streaks.
-  const scheduled = scheduledDoses(stack).filter((d) => d.item.startedAt <= date);
-  if (scheduled.length === 0) return { taken: 0, scheduled: 0, skipped: 0, rate: 1 };
+  const scheduled = dosesOn(stack, date);
+  if (scheduled.length === 0)
+    return { taken: 0, scheduled: 0, skipped: 0, resolved: 0, late: 0, rate: 1 };
   const planned = new Set(scheduled.map((d) => `${d.item.id}:${d.slot}`));
   const day = logsForDate(logs, date).filter((l) => planned.has(`${l.itemId}:${l.slot}`));
   const taken = day.filter((l) => l.status === "taken").length;
-  const skipped = day.filter((l) => l.status === "skipped").length;
+  const skipped = day.filter((l) => l.status === "skipped" || l.status === "missed").length;
   return {
     taken,
     skipped,
+    resolved: taken + skipped,
+    late: day.filter((l) => l.status === "taken" && l.late).length,
     scheduled: scheduled.length,
     rate: Math.min(1, taken / scheduled.length),
   };
@@ -196,7 +195,7 @@ export function rangeAdherence(stack: StackItem[], logs: DoseLog[], from: string
 }
 
 export function streakDays(stack: StackItem[], logs: DoseLog[], today = todayKey()) {
-  if (scheduledDoses(stack).length === 0) return 0;
+  if (activeStack(stack).length === 0) return 0;
   let streak = 0;
   let cursor = today;
   const todayStats = dayAdherence(stack, logs, today);

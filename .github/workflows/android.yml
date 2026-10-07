@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       VERSION_CODE: ${{ github.run_number }}
-      VERSION_NAME: 1.0.${{ github.run_number }}
+      VERSION_NAME: 2.0.${{ github.run_number }}
     steps:
       - uses: actions/checkout@v5
 
