@@ -1,0 +1,119 @@
+import { Health, type HealthDataType, type HealthSample } from "@capgo/capacitor-health";
+import { isNative } from "./platform";
+import { useSupplime } from "./store";
+import type { BodyLog } from "./types";
+import { todayKey } from "./utils";
+
+/**
+ * Health Connect is Android's shared health store. Fitbit / Google Health write sleep,
+ * resting heart rate, HRV and steps into it; Supplime only reads them, so it can show
+ * how they change while you take each supplement. Nothing leaves the phone.
+ */
+
+const READ: HealthDataType[] = ["sleep", "restingHeartRate", "heartRateVariability", "steps"];
+
+export async function healthAvailable(): Promise<{ ok: boolean; reason?: string }> {
+  if (!isNative()) return { ok: false, reason: "Only in the Android app." };
+  try {
+    const r = await Health.isAvailable();
+    return { ok: r.available, reason: r.reason };
+  } catch (err) {
+    return { ok: false, reason: String(err) };
+  }
+}
+
+export async function connectHealth(): Promise<boolean> {
+  const avail = await healthAvailable();
+  if (!avail.ok) return false;
+  const status = await Health.requestAuthorization({ read: READ, requestHistoryAccess: true });
+  return status.readAuthorized.length > 0;
+}
+
+export async function openHealthSettings() {
+  if (!isNative()) return;
+  try {
+    await Health.openHealthConnectSettings();
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Local calendar day a sample belongs to (sleep counts for the morning you woke up). */
+const dayOf = (iso: string) => todayKey(new Date(iso));
+
+function asleepMinutes(s: HealthSample) {
+  if (s.stages?.length) {
+    return s.stages
+      .filter((st) => st.stage !== "awake" && st.stage !== "inBed")
+      .reduce((n, st) => n + st.durationMinutes, 0);
+  }
+  if (s.sleepState === "awake" || s.sleepState === "inBed") return 0;
+  return (Date.parse(s.endDate) - Date.parse(s.startDate)) / 60_000;
+}
+
+/** Pull the last `days` days and merge them into the body log. Returns days updated. */
+export async function syncHealth(days = 45): Promise<number> {
+  if (!isNative()) return 0;
+  const end = new Date();
+  const start = new Date(end.getTime() - days * 86_400_000);
+  const range = { startDate: start.toISOString(), endDate: end.toISOString() };
+  const byDate = new Map<string, BodyLog>();
+  const row = (date: string) => {
+    let r = byDate.get(date);
+    if (!r) {
+      r = { date, source: "fitbit" };
+      byDate.set(date, r);
+    }
+    return r;
+  };
+  const safe = async <T>(fn: () => Promise<T>) => {
+    try {
+      return await fn();
+    } catch {
+      return null;
+    }
+  };
+
+  const sleep = await safe(() => Health.readSamples({ dataType: "sleep", ...range, limit: 1000 }));
+  const sleepByDay = new Map<string, number>();
+  for (const s of sleep?.samples ?? []) {
+    const d = dayOf(s.endDate);
+    sleepByDay.set(d, (sleepByDay.get(d) ?? 0) + asleepMinutes(s));
+  }
+  for (const [d, min] of sleepByDay)
+    if (min > 60) row(d).sleepHours = Math.round((min / 60) * 10) / 10;
+
+  const avgInto = async (type: HealthDataType, key: "restingHr" | "hrv") => {
+    const res = await safe(() => Health.readSamples({ dataType: type, ...range, limit: 5000 }));
+    const acc = new Map<string, number[]>();
+    for (const s of res?.samples ?? []) {
+      const d = dayOf(s.startDate);
+      acc.set(d, [...(acc.get(d) ?? []), s.value]);
+    }
+    for (const [d, vals] of acc)
+      row(d)[key] = Math.round(vals.reduce((a, b) => a + b, 0) / vals.length);
+  };
+  await avgInto("restingHeartRate", "restingHr");
+  await avgInto("heartRateVariability", "hrv");
+
+  const steps = await safe(() =>
+    Health.queryAggregated({ dataType: "steps", ...range, bucket: "day", aggregation: "sum" }),
+  );
+  for (const s of steps?.samples ?? [])
+    if (s.value > 0) row(dayOf(s.startDate)).steps = Math.round(s.value);
+
+  const entries = [...byDate.values()];
+  if (entries.length) useSupplime.getState().importBody(entries);
+  useSupplime
+    .getState()
+    .setProfile({ healthSync: { enabled: true, lastSync: new Date().toISOString() } });
+  return entries.length;
+}
+
+/** Sync quietly if it's been a while (called when the app opens). */
+export async function maybeSyncHealth() {
+  const sync = useSupplime.getState().profile.healthSync;
+  if (!sync?.enabled) return;
+  if (sync.lastSync && Date.now() - Date.parse(sync.lastSync) < 6 * 3_600_000) return;
+  await syncHealth(14);
+}

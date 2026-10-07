@@ -13,6 +13,8 @@ export type ParsedProduct = {
   form?: string;
   catalogId?: string;
   url?: string;
+  /** iHerb product number from the link, e.g. 62118. */
+  iherbId?: number;
 };
 
 const BRANDS = [
@@ -146,6 +148,9 @@ export function parseProduct(input: string): ParsedProduct | null {
     form: count?.[2]?.toLowerCase().replace(/\s+/g, " "),
     catalogId: matchCatalog(n),
     url,
+    iherbId: url
+      ? Number(url.match(/\/pr\/(?:[^/?#]+\/)?(\d{2,7})(?:[/?#]|$)/)?.[1]) || undefined
+      : undefined,
   };
 }
 

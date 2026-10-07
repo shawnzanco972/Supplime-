@@ -160,7 +160,9 @@ export function effectiveSlotTimes(
 /* ------------------------------------------------------------------ planning */
 
 export function activeStack(stack: StackItem[]) {
-  return stack.filter((item) => !item.paused && !item.archived && item.slots.length > 0);
+  return stack.filter(
+    (item) => !item.paused && !item.archived && !item.planned && item.slots.length > 0,
+  );
 }
 
 export function scheduledDoses(stack: StackItem[]): PlannedDose[] {

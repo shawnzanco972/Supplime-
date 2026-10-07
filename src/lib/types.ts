@@ -95,6 +95,37 @@ export type StackItem = {
   source?: { url?: string; brand?: string; title?: string };
   /** Capsule/tablet strength, so "1 capsule = 200 mg" stays visible. */
   servingLabel?: string;
+  /**
+   * The actual bottle: what one pill contains. When set, the dose is "pills per dose"
+   * (servingsPerDose) and `amount` = pills × dosePerUnit.
+   */
+  product?: ItemProduct;
+  /** In your cabinet but not started yet: no reminders, offered as a next experiment. */
+  planned?: boolean;
+  /** You set your own reorder warning for this bottle (otherwise it follows Settings). */
+  reorderCustom?: boolean;
+  /** Food options you're fine with (defaults from the guide). */
+  foodOk?: FoodTiming[];
+};
+
+export type ItemProduct = {
+  id?: string;
+  brand: string;
+  name: string;
+  form: "capsule" | "veg capsule" | "softgel" | "tablet" | "lozenge" | "scoop";
+  perUnit: { name: string; amount: number; unit: string }[];
+  dosePerUnit: number;
+  labelServing?: number;
+  labelUse?: string;
+};
+
+/** A periodic "any side effects?" check. */
+export type SafetyCheck = {
+  id: string;
+  itemId: string;
+  date: string;
+  /** Symptoms you ticked; empty = all good. */
+  symptoms: string[];
 };
 
 export type Verdict = "worked" | "no-effect" | "side-effects" | "other";
@@ -157,6 +188,8 @@ export type EffectLog = {
   rating: EffectRating;
   note?: string;
   sideEffects?: boolean;
+  /** What the check-in was about, e.g. "focus" or "sleep-onset". */
+  area?: string;
 };
 
 export type DoseStatus = "taken" | "skipped" | "missed" | "deferred";
@@ -175,6 +208,8 @@ export type DoseLog = {
   reason?: MissReason;
   /** For a deferred dose: when to remind (HH:MM, same day). */
   remindAt?: string;
+  /** Reconstructed from "I've been taking it since…" rather than logged on the day. */
+  backfill?: boolean;
 };
 
 /** Things about one particular day: when you actually got up, coffee, a drink. */
@@ -222,7 +257,13 @@ export type BadgeId =
   | "stock-steward"
   | "signal-keeper"
   | "onset"
-  | "felt-it";
+  | "felt-it"
+  | "history"
+  | "fair-test"
+  | "verdict"
+  | "safety-first"
+  | "one-at-a-time"
+  | "linked";
 
 export type Rhythm = {
   wake: string;
@@ -268,6 +309,17 @@ export type Profile = {
   facts: string[];
   /** First day in Supplime. Streaks and weekly targets start here, not at backdated start dates. */
   joinedAt?: string;
+  /** The day you installed Supplime (never moves; full-day XP only counts from here). */
+  installedAt?: string;
+  /** Warn this many days before a bottle runs out (covers shipping). */
+  reorderLeadDays: number;
+  /** How the coach runs: share to the Claude/Gemini app, or an API key. */
+  coachProvider?: "share" | "gemini" | "xai";
+  geminiKey?: string;
+  /** Your saved coach answers (pasted back from Claude / Gemini). */
+  coachNotes?: { date: string; text: string; source: string }[];
+  /** Health Connect (Fitbit / Google Health) sync. */
+  healthSync?: { enabled: boolean; lastSync?: string };
 };
 
 export type CoachResult = {
@@ -286,4 +338,5 @@ export type PersistedData = {
   effects: EffectLog[];
   days: DayContext[];
   decisions: Decision[];
+  checks: SafetyCheck[];
 };

@@ -1,7 +1,19 @@
 import { CATALOG_BY_ID } from "./catalog";
 import { profileFor } from "./knowledge";
 import { activeStack, dayMinutes } from "./protocol";
-import type { DayContext, Profile, SlotId, SlotTimes, StackItem } from "./types";
+import {
+  SLOTS,
+  type DayContext,
+  type Profile,
+  type SlotId,
+  type SlotTimes,
+  type StackItem,
+} from "./types";
+
+const SLOT_LABEL = Object.fromEntries(SLOTS.map((s) => [s.id, s.label.toLowerCase()])) as Record<
+  SlotId,
+  string
+>;
 import { formatClock } from "./utils";
 
 export type Flag = {
@@ -30,11 +42,27 @@ export function doseFlags(input: {
   const flags: Flag[] = [];
   const mealSlot = slot === "breakfast" || slot === "lunch" || slot === "dinner";
 
+  const foodOk = item.foodOk ?? p.timing.food;
+  const fineEmpty = foodOk.includes("empty") || foodOk.includes("any");
+  if (p.timing.avoid.includes(slot)) {
+    flags.push({
+      tone: "warn",
+      icon: slot === "bed" || slot === "dinner" ? "moon" : "sun",
+      text: `Not a good window for ${item.name}. Better: ${p.timing.best.map((s) => SLOT_LABEL[s]).join(" or ")}.`,
+    });
+  }
+
   for (const rule of p.rules) {
     switch (rule.kind) {
       case "needs-food":
       case "needs-fat":
-        if (!mealSlot) {
+        if (!mealSlot && rule.kind === "needs-food" && fineEmpty) {
+          flags.push({
+            tone: "info",
+            icon: "food",
+            text: "Fine without food; take it with a meal if your stomach is sensitive.",
+          });
+        } else if (!mealSlot) {
           flags.push({
             tone: "warn",
             icon: "food",
