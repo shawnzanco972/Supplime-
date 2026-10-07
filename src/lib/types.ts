@@ -106,6 +106,22 @@ export type StackItem = {
   reorderCustom?: boolean;
   /** Food options you're fine with (defaults from the guide). */
   foodOk?: FoodTiming[];
+  /**
+   * A dose change that starts on a later day (you'd already taken today's dose when you
+   * decided). Applied automatically on `date`.
+   */
+  pendingDose?: PendingDose;
+};
+
+export type PendingDose = {
+  date: string;
+  kind: "step-up" | "lower";
+  amount: number;
+  /** Pills per dose at the new dose. */
+  units: number;
+  /** Switching to a new bottle as part of the change. */
+  product?: ItemProduct;
+  bottle?: number;
 };
 
 export type ItemProduct = {
@@ -246,6 +262,13 @@ export type BodyLog = {
   restingHr?: number;
   hrv?: number;
   steps?: number;
+  /** Deep and REM sleep that night (minutes), from sleep stages. */
+  deepMin?: number;
+  remMin?: number;
+  /** Exercise minutes that day. */
+  activeMin?: number;
+  /** Average blood oxygen (%). */
+  spo2?: number;
   energy?: number;
   mood?: number;
   focus?: number;
@@ -325,7 +348,7 @@ export type Profile = {
   /** Your saved coach answers (pasted back from Claude / Gemini). */
   coachNotes?: { date: string; text: string; source: string }[];
   /** Health Connect (Fitbit / Google Health) sync. */
-  healthSync?: { enabled: boolean; lastSync?: string };
+  healthSync?: { enabled: boolean; lastSync?: string; scope?: number };
 };
 
 export type CoachResult = {

@@ -168,13 +168,20 @@ export function journeyFor(input: {
   let phase: Phase;
   if (item.archived) phase = "stopped";
   else if (evaluateDue) phase = "evaluate";
-  else if (holding || changedToday) phase = "holding";
+  else if (holding || changedToday || item.pendingDose) phase = "holding";
   else if (working) phase = "working";
   else if (day >= p.firstSignsDay)
     phase = doseReviewOpen && day >= p.typicalDay ? "review" : "window";
   else phase = "building";
 
-  const recommendation: Recommendation = changedToday
+  const pd = item.pendingDose;
+  const recommendation: Recommendation = pd
+    ? {
+        kind: "keep",
+        title: `${pd.kind === "step-up" ? "Stepping up" : "Lowering"} to ${trimNum(pd.amount)} ${item.unit} on ${formatShortDate(pd.date)}`,
+        why: `Today stays at ${doseLabel(item, item.amount)}. Your new dose starts ${pd.date === addDays(today, 1) ? "tomorrow" : formatShortDate(pd.date)}.`,
+      }
+    : changedToday
     ? {
         kind: "keep",
         title: `New dose: ${doseLabel(item, item.amount)} from today`,

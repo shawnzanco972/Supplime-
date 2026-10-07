@@ -44,7 +44,8 @@ export function capsuleSwap(item: StackItem, direction: 1 | -1): Swap | null {
       if (!ok(amount)) continue;
       if (direction === 1 && (amount <= item.amount + 1e-9 || amount > item.amount * 2 + 1e-9))
         continue;
-      if (direction === -1 && amount >= item.amount - 1e-9) continue;
+      // A step down should be a real drop (at least a quarter less).
+      if (direction === -1 && amount > item.amount * 0.75 + 1e-9) continue;
       candidates.push({ direction, product, units, amount, why: "" });
     }
   }

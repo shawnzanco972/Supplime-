@@ -57,6 +57,7 @@ function Editor({ item, onClose }: { item: StackItem; onClose: () => void }) {
   const profile = useSupplime((s) => s.profile);
   const openOverlay = useNav((s) => s.open);
   const effects = useSupplime((s) => s.effects);
+  const logs = useSupplime((s) => s.logs);
   const saveItem = useSupplime((s) => s.saveItem);
   const removeItem = useSupplime((s) => s.removeItem);
   const archiveItem = useSupplime((s) => s.archiveItem);
@@ -95,6 +96,7 @@ function Editor({ item, onClose }: { item: StackItem; onClose: () => void }) {
     foodOk: (item.foodOk ?? p.timing.food) as FoodTiming[],
     reorderCustom: !!item.reorderCustom,
     product: item.product,
+    startTomorrow: null as boolean | null,
   });
   const set = (patch: Partial<typeof d>) => setD((prev) => ({ ...prev, ...patch }));
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -120,6 +122,10 @@ function Editor({ item, onClose }: { item: StackItem; onClose: () => void }) {
   function doseChangedByHand() {
     return d.amount !== undefined && d.amount !== item.amount;
   }
+  const takenToday = logs.some(
+    (l) => l.itemId === item.id && l.date === today && l.status === "taken",
+  );
+  const startTomorrow = d.startTomorrow ?? takenToday;
   const changedToday =
     item.doseHistory.length > 1 && item.doseHistory.at(-1)?.date === today;
   const prod = d.product;
@@ -143,6 +149,10 @@ function Editor({ item, onClose }: { item: StackItem; onClose: () => void }) {
       amount: useDaily ? dailyAmount! : d.amount,
       // Same daily total spread differently: fix the record, don't restart the clock.
       doseChange: useDaily ? "correction" : d.doseChange,
+      startOn:
+        !useDaily && d.doseChange === "new-step" && startTomorrow && !changedToday
+          ? addDays(today, 1)
+          : undefined,
       startedAt: d.startedAt,
       slots: d.slots,
       foodTiming: d.foodTiming,
@@ -160,7 +170,7 @@ function Editor({ item, onClose }: { item: StackItem; onClose: () => void }) {
       product: d.product,
       overrides: Object.keys(overrides).length ? overrides : undefined,
     };
-  }, [d, guide, item, useDaily, dailyAmount, dailyPills]);
+  }, [d, guide, item, useDaily, dailyAmount, dailyPills, startTomorrow, changedToday, today]);
 
   const dirty = useMemo(() => {
     const before: ItemDraft = {
@@ -182,7 +192,7 @@ function Editor({ item, onClose }: { item: StackItem; onClose: () => void }) {
       reorderCustom: item.reorderCustom || undefined,
       overrides: item.overrides && Object.keys(item.overrides).length ? item.overrides : undefined,
     };
-    const { doseChange: _ignored, ...now } = draft;
+    const { doseChange: _ignored, startOn: _start, ...now } = draft;
     return JSON.stringify(sortKeys(before)) !== JSON.stringify(sortKeys(now));
   }, [draft, item]);
 
@@ -191,7 +201,9 @@ function Editor({ item, onClose }: { item: StackItem; onClose: () => void }) {
     toast(`Saved ${draft.name}`, {
       description:
         doseChanged && d.doseChange === "new-step"
-          ? `${d.amount} ${draft.unit} from today. The dose clock restarts.`
+          ? draft.startOn
+            ? `${d.amount} ${draft.unit} from tomorrow. Today stays as it was.`
+            : `${d.amount} ${draft.unit} from today. The dose clock restarts.`
           : undefined,
     });
     onClose();
@@ -328,10 +340,20 @@ function Editor({ item, onClose }: { item: StackItem; onClose: () => void }) {
             <div className="space-y-2">
               <p className="text-sm font-medium">Is this a real change?</p>
               <RadioCard
-                on={d.doseChange === "new-step"}
-                onClick={() => set({ doseChange: "new-step" })}
-                title="Yes, I take this from today"
-                detail={`Starts a new step on your timeline. Supplime waits ${p.minDaysBeforeIncrease} days before suggesting another change.`}
+                on={d.doseChange === "new-step" && !startTomorrow}
+                onClick={() => set({ doseChange: "new-step", startTomorrow: false })}
+                title="Yes, starting today"
+                detail={
+                  takenToday
+                    ? "Today's dose is already logged at the old amount, so today would be counted at the new one."
+                    : `Starts a new step on your timeline. Supplime waits ${p.minDaysBeforeIncrease} days before suggesting another change.`
+                }
+              />
+              <RadioCard
+                on={d.doseChange === "new-step" && startTomorrow}
+                onClick={() => set({ doseChange: "new-step", startTomorrow: true })}
+                title="Yes, starting tomorrow"
+                detail="Today stays at the old dose. Tomorrow is your dose-up day."
               />
               <RadioCard
                 on={d.doseChange === "correction"}

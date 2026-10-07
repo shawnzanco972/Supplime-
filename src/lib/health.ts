@@ -10,7 +10,14 @@ import { todayKey } from "./utils";
  * how they change while you take each supplement. Nothing leaves the phone.
  */
 
-const READ: HealthDataType[] = ["sleep", "restingHeartRate", "heartRateVariability", "steps"];
+const READ: HealthDataType[] = [
+  "sleep",
+  "restingHeartRate",
+  "heartRateVariability",
+  "steps",
+  "exerciseTime",
+  "oxygenSaturation",
+];
 
 export async function healthAvailable(): Promise<{ ok: boolean; reason?: string }> {
   if (!isNative()) return { ok: false, reason: "Only in the Android app." };
@@ -82,8 +89,27 @@ export async function syncHealth(days = 45): Promise<number> {
   }
   for (const [d, min] of sleepByDay)
     if (min > 60) row(d).sleepHours = Math.round((min / 60) * 10) / 10;
+  // Deep and REM minutes, when Fitbit shares sleep stages.
+  const stageBy = new Map<string, { deep: number; rem: number }>();
+  for (const s of sleep?.samples ?? []) {
+    const d = dayOf(s.endDate);
+    const acc = stageBy.get(d) ?? { deep: 0, rem: 0 };
+    for (const st of s.stages ?? []) {
+      if (st.stage === "deep") acc.deep += st.durationMinutes;
+      if (st.stage === "rem") acc.rem += st.durationMinutes;
+    }
+    if (!s.stages?.length && s.sleepState === "deep")
+      acc.deep += (Date.parse(s.endDate) - Date.parse(s.startDate)) / 60_000;
+    if (!s.stages?.length && s.sleepState === "rem")
+      acc.rem += (Date.parse(s.endDate) - Date.parse(s.startDate)) / 60_000;
+    stageBy.set(d, acc);
+  }
+  for (const [d, a] of stageBy) {
+    if (a.deep > 0) row(d).deepMin = Math.round(a.deep);
+    if (a.rem > 0) row(d).remMin = Math.round(a.rem);
+  }
 
-  const avgInto = async (type: HealthDataType, key: "restingHr" | "hrv") => {
+  const avgInto = async (type: HealthDataType, key: "restingHr" | "hrv" | "spo2") => {
     const res = await safe(() => Health.readSamples({ dataType: type, ...range, limit: 5000 }));
     const acc = new Map<string, number[]>();
     for (const s of res?.samples ?? []) {
@@ -95,6 +121,7 @@ export async function syncHealth(days = 45): Promise<number> {
   };
   await avgInto("restingHeartRate", "restingHr");
   await avgInto("heartRateVariability", "hrv");
+  await avgInto("oxygenSaturation", "spo2");
 
   const steps = await safe(() =>
     Health.queryAggregated({ dataType: "steps", ...range, bucket: "day", aggregation: "sum" }),
@@ -102,15 +129,27 @@ export async function syncHealth(days = 45): Promise<number> {
   for (const s of steps?.samples ?? [])
     if (s.value > 0) row(dayOf(s.startDate)).steps = Math.round(s.value);
 
+  const active = await safe(() =>
+    Health.queryAggregated({ dataType: "exerciseTime", ...range, bucket: "day", aggregation: "sum" }),
+  );
+  for (const s of active?.samples ?? [])
+    if (s.value > 0) row(dayOf(s.startDate)).activeMin = Math.round(s.value);
+
   const entries = [...byDate.values()];
   if (entries.length) useSupplime.getState().importBody(entries);
-  useSupplime
-    .getState()
-    .setProfile({ healthSync: { enabled: true, lastSync: new Date().toISOString() } });
+  useSupplime.getState().setProfile({
+    healthSync: { enabled: true, lastSync: new Date().toISOString(), scope: READ.length },
+  });
   return entries.length;
 }
 
 /** Sync quietly if it's been a while (called when the app opens). */
+/** Ask again when this version reads more data types than you granted before. */
+export function needsMorePermissions() {
+  const sync = useSupplime.getState().profile.healthSync;
+  return !!sync?.enabled && (sync.scope ?? 4) < READ.length;
+}
+
 export async function maybeSyncHealth() {
   const sync = useSupplime.getState().profile.healthSync;
   if (!sync?.enabled) return;

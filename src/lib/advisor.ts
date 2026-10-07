@@ -145,6 +145,25 @@ export function beforeAfter(item: StackItem, body: BodyLog[], today: string): De
 
 /* ------------------------------------------------------------ recommendations */
 
+/** Why people commonly take it: "Focus · Mood", from the goals it serves. */
+export function usesFor(catalogId: string | null | undefined): string[] {
+  if (!catalogId) return [];
+  return (Object.keys(GOAL_MAP) as GoalId[])
+    .filter((g) => GOAL_MAP[g].includes(catalogId))
+    .map((g) => USE_LABEL[g]);
+}
+
+const USE_LABEL: Record<GoalId, string> = {
+  focus: "Focus",
+  calm: "Calm",
+  sleep: "Sleep",
+  energy: "Energy",
+  mood: "Mood",
+  recovery: "Recovery",
+  immunity: "Immunity",
+  longevity: "Long-term health",
+};
+
 const GOAL_MAP: Record<GoalId, string[]> = {
   focus: ["lions-mane", "l-theanine", "bacopa", "omega-3", "alpha-gpc", "creatine"],
   calm: ["l-theanine", "magnesium", "ashwagandha", "reishi", "taurine"],
@@ -334,6 +353,7 @@ export function advise(state: {
         action: "switch",
       });
     }
+    if (item.pendingDose) continue;
     // A step that needs another bottle: say so early enough to order it.
     const upSwap = capsuleSwap(item, 1);
     if (upSwap && !j.holding && !j.changedToday && j.phase !== "working") {

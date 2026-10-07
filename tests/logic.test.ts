@@ -777,3 +777,34 @@ describe("v3.1: whole pills, one decision a day, skips vs sleep", () => {
     expect(g.note).toMatch(/missed Melatonin/);
   });
 });
+
+describe("v3.3: dose changes start on the right day", () => {
+  it("a step-up decided after today's dose starts tomorrow", () => {
+    setup(["lions-mane"]);
+    const id = byCat("lions-mane").id;
+    s().updateItem(id, { amount: 600, servingsPerDose: 1, startedAt: "2026-09-01", doseHistory: [{ date: "2026-09-01", amount: 600, unit: "mg" }] });
+    s().logDose(id, byCat("lions-mane").slots[0]!, "taken", TODAY);
+    s().decide(id, "step-up", { to: 1200 });
+    const item = byCat("lions-mane");
+    expect(item.amount).toBe(600);
+    expect(item.pendingDose).toMatchObject({ date: "2026-10-07", amount: 1200, units: 2 });
+    expect(item.doseHistory).toHaveLength(1);
+    s().applyPendingDoses("2026-10-07");
+    const after = byCat("lions-mane");
+    expect(after.amount).toBe(1200);
+    expect(after.pendingDose).toBeUndefined();
+    expect(after.doseHistory.at(-1)).toMatchObject({ date: "2026-10-07", amount: 1200 });
+  });
+
+  it("starts today when nothing was taken yet, and can be cancelled", () => {
+    setup(["lions-mane"]);
+    const id = byCat("lions-mane").id;
+    s().updateItem(id, { amount: 600, startedAt: "2026-09-01", doseHistory: [{ date: "2026-09-01", amount: 600, unit: "mg" }] });
+    s().decide(id, "step-up", { to: 1200 });
+    expect(byCat("lions-mane").amount).toBe(1200);
+    s().decide(id, "lower", { to: 600, startOn: "2026-10-07" });
+    expect(byCat("lions-mane").pendingDose?.amount).toBe(600);
+    s().cancelPendingDose(id);
+    expect(byCat("lions-mane").pendingDose).toBeUndefined();
+  });
+});

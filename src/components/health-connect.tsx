@@ -1,7 +1,13 @@
 import { useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { connectHealth, healthAvailable, openHealthSettings, syncHealth } from "@/lib/health";
+import {
+  connectHealth,
+  healthAvailable,
+  needsMorePermissions,
+  openHealthSettings,
+  syncHealth,
+} from "@/lib/health";
 import { isNative } from "@/lib/platform";
 import { useSupplime } from "@/lib/store";
 import { formatShortDate, todayKey } from "@/lib/utils";
@@ -61,6 +67,14 @@ export function HealthConnect() {
               : ""}
             . Syncs when you open the app.
           </p>
+          {needsMorePermissions() && (
+            <div className="rounded-xl bg-accent p-3 text-sm text-accent-foreground">
+              <p>New: deep and REM sleep, exercise minutes and blood oxygen.</p>
+              <Button size="sm" className="mt-2" disabled={busy} onClick={() => run(true)}>
+                Share more data
+              </Button>
+            </div>
+          )}
           <div className="flex gap-2">
             <Button variant="outline" disabled={busy} onClick={() => run(false)}>
               {busy ? "Syncing…" : "Sync now"}

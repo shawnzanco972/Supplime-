@@ -1,12 +1,11 @@
-import { AlarmClock, Check, Flag, Sparkles, Sun, Undo2 } from "lucide-react";
+import { AlarmClock, Check, Flag, Sparkles, Undo2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
-import { DayLog } from "@/components/day-log";
+import { DoseDayCards, TodaySummary } from "@/components/today-summary";
 import { EffectCheckIn, SafetyCheck } from "@/components/effect-check-in";
 import { FlagChip } from "@/components/flag-chip";
 import { LevelCard } from "@/components/level-card";
 import { Button } from "@/components/ui/button";
-import { Progress } from "@/components/ui/progress";
 import { doseFlags } from "@/lib/flags";
 import { gameSummary, milestonesReached, XP, bonusDay, type Quest } from "@/lib/game";
 import { safetyDue } from "@/lib/advisor";
@@ -25,7 +24,8 @@ import {
   type SlotPlan,
 } from "@/lib/protocol";
 import { daysOfStock, isLowStock, needsCheckIn, remainingKeys } from "@/lib/stats";
-import { useSupplime } from "@/lib/store";
+import { appToday, useSupplime } from "@/lib/store";
+import { doseLabel } from "@/lib/journey";
 import { WAKE_RELATIVE, type DoseLog } from "@/lib/types";
 import { cn, formatClock, formatHHMM, greeting } from "@/lib/utils";
 
@@ -95,65 +95,34 @@ export function TodayView({ now }: { now: number }) {
         {profile.why && <p className="mt-1 text-sm text-primary italic">“{profile.why}”</p>}
       </header>
 
-      <LevelCard game={game} compact onOpen={() => go("journey")} />
+      <TodaySummary
+        date={date}
+        plans={plans}
+        todayLogs={todayLogs}
+        day={day}
+        nowMin={nowMin}
+        wake={{
+          show: showWake,
+          wokeAt,
+          shift,
+          onUp: () => {
+            const at = formatHHMM(nowMin);
+            state.setDay(date, { wokeAt: at });
+            const delta = nowMin - dayMinutes(profile.slotTimes.wake, profile.rhythm.wake);
+            toast("Good morning", {
+              description:
+                Math.abs(delta) < 15
+                  ? "Right on schedule."
+                  : `Morning plan moved ${delta > 0 ? "+" : "−"}${fmtDelta(Math.abs(delta))}.`,
+            });
+          },
+          onUndo: () => state.setDay(date, { wokeAt: undefined }),
+        }}
+      />
 
-      {/* Your day: wake time and today's coffee/drinks */}
-      <section className="rounded-2xl bg-card p-4 shadow-[var(--shadow-border)]">
-        {showWake ? (
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <p className="font-medium">Up yet?</p>
-              <p className="text-sm text-muted-foreground">
-                Tap when you get up and your morning windows move with you.
-              </p>
-            </div>
-            <Button
-              onClick={() => {
-                const at = formatHHMM(nowMin);
-                state.setDay(date, { wokeAt: at });
-                const delta = nowMin - dayMinutes(profile.slotTimes.wake, profile.rhythm.wake);
-                toast("Good morning", {
-                  description:
-                    Math.abs(delta) < 15
-                      ? "Right on schedule."
-                      : `Morning plan moved ${delta > 0 ? "+" : "−"}${fmtDelta(Math.abs(delta))}.`,
-                });
-              }}
-            >
-              <Sun /> I'm up
-            </Button>
-          </div>
-        ) : (
-          <div className="flex items-center justify-between gap-3 text-sm">
-            <p className="text-muted-foreground">
-              {wokeAt ? (
-                <>
-                  Up at <span className="font-medium text-foreground">{formatClock(wokeAt)}</span>
-                  {Math.abs(shift) >= 15 &&
-                    ` · plan ${shift > 0 ? "+" : "−"}${fmtDelta(Math.abs(shift))}`}
-                </>
-              ) : (
-                <>
-                  Your day: up {formatClock(profile.rhythm.wake)}, bed{" "}
-                  {formatClock(profile.rhythm.bed)}
-                </>
-              )}
-            </p>
-            {wokeAt && (
-              <button
-                type="button"
-                className="flex min-h-9 items-center gap-1 text-xs text-muted-foreground"
-                onClick={() => state.setDay(date, { wokeAt: undefined })}
-              >
-                <Undo2 className="size-3.5" /> undo
-              </button>
-            )}
-          </div>
-        )}
-        <div className="mt-3 border-t border-border pt-3">
-          <DayLog date={date} day={day} nowMin={nowMin} />
-        </div>
-      </section>
+      <DoseDayCards date={date} stack={stack} />
+
+      <LevelCard game={game} compact onOpen={() => go("journey")} />
 
       <Quests quests={game.quests} onAction={(q) => questAction(q)} />
 
@@ -264,8 +233,12 @@ export function TodayView({ now }: { now: number }) {
                               date,
                               late ? { late: true } : undefined,
                             );
+                            const h = dose.item.doseHistory;
+                            const first = h.length > 1 && h.at(-1)!.date === date;
                             toast(`+${late ? XP.lateDose : XP.dose} XP`, {
-                              description: `${dose.item.name} logged.`,
+                              description: first
+                                ? `First dose at ${doseLabel(dose.item, dose.item.amount)}. New step, day 1.`
+                                : `${dose.item.name} logged.`,
                             });
                           }}
                           onNotNow={() =>
@@ -510,16 +483,24 @@ function DoseRow({
 }) {
   const [showAll, setShowAll] = useState(false);
   const status = log?.status;
+  const h = dose.item.doseHistory;
+  const newDose = h.length > 1 && h.at(-1)!.date === appToday();
   const done = status === "taken" || status === "skipped" || status === "missed";
   const shown = showAll ? flags : flags.slice(0, flags[0]?.tone === "warn" ? 2 : 1);
   return (
     <div className={cn("rounded-xl px-3 py-2", done && "opacity-70")}>
       <div className="flex items-center gap-3">
         <button type="button" onClick={onOpen} className="min-w-0 flex-1 text-left">
-          <p className="truncate font-medium">{dose.item.name}</p>
-          <p className="text-xs text-muted-foreground">
-            {dose.item.amount} {dose.item.unit}
-            {dose.item.servingLabel ? ` · ${dose.item.servingLabel}` : ""}
+          <p className="truncate font-medium">
+            {dose.item.name}
+            {newDose && (
+              <span className="ml-2 inline-flex items-center gap-0.5 rounded-full bg-primary px-2 py-0.5 align-middle text-[10px] font-semibold text-primary-foreground uppercase">
+                <Sparkles className="size-3" /> New dose
+              </span>
+            )}
+          </p>
+          <p className={cn("text-xs text-muted-foreground", newDose && "font-medium text-primary")}>
+            {doseLabel(dose.item, dose.item.amount)}
           </p>
         </button>
         {status === "deferred" ? (

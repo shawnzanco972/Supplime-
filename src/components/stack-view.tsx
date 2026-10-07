@@ -1,3 +1,4 @@
+import { UseTags } from "@/components/product-picker";
 import { ChevronRight } from "lucide-react";
 import { FlagChip } from "@/components/flag-chip";
 import { Badge } from "@/components/ui/badge";
@@ -42,6 +43,7 @@ export function StackView() {
               <span className="text-xs text-muted-foreground">{phase.label}</span>
             )}
           </div>
+          <UseTags catalogId={item.catalogId} className="mt-1" />
           {item.product && (
             <p className="mt-0.5 text-xs text-muted-foreground">
               {item.product.brand} ·{" "}

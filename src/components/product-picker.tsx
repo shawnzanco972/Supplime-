@@ -1,3 +1,4 @@
+import { usesFor } from "@/lib/advisor";
 import {
   Activity,
   Atom,
@@ -201,6 +202,7 @@ export function ProductPicker({
                 <Icon className="size-5" />
               </span>
               <span className="text-sm leading-tight font-medium">{t.name}</span>
+              <UseTags catalogId={t.id} />
               <span className="text-[11px] leading-tight text-muted-foreground">
                 {taken
                   ? "Already added"
@@ -301,6 +303,24 @@ const BRAND_COLOR: Record<string, string> = {
   Thorne: "bg-[#2b2b2b] text-white",
   Solgar: "bg-[#8b6f2f] text-white",
 };
+
+/** Small labels: what people usually take it for. */
+export function UseTags({ catalogId, className }: { catalogId: string | null; className?: string }) {
+  const uses = usesFor(catalogId).slice(0, 3);
+  if (!uses.length) return null;
+  return (
+    <span className={cn("flex flex-wrap gap-1", className)}>
+      {uses.map((u) => (
+        <span
+          key={u}
+          className="rounded-full bg-accent/70 px-1.5 py-0.5 text-[10px] leading-none font-medium text-accent-foreground"
+        >
+          {u}
+        </span>
+      ))}
+    </span>
+  );
+}
 
 export function BrandBadge({ brand, className }: { brand: string; className?: string }) {
   const initials = brand

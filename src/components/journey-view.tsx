@@ -11,7 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { advise, beforeAfter, fmtDose } from "@/lib/advisor";
 import { dayGrid, METRIC_COPY, skipImpact, type Cell } from "@/lib/insights";
 import { askGemini, askGrok, buildCoachPrompt, shareToAssistant } from "@/lib/coach";
-import { iconFor } from "@/components/product-picker";
+import { iconFor, UseTags } from "@/components/product-picker";
 import { countedDecisions, gameSummary, XP } from "@/lib/game";
 import { doseLabel, journeyFor, PHASE_COPY, type Journey } from "@/lib/journey";
 import { ALL_FACTS, nextStep, unitStrength } from "@/lib/knowledge";
@@ -282,6 +282,7 @@ export function JourneyCard({
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <p className="font-medium">{j.item.name}</p>
+            <UseTags catalogId={j.item.catalogId} className="my-1" />
             <p className="text-xs text-muted-foreground">
               Day {j.day} · {j.takenDays} taken
               {j.consistency !== null ? ` (${Math.round(j.consistency * 100)}%)` : ""} · {j.atDose}d
@@ -453,6 +454,7 @@ export function EvaluateSheet({ itemId }: { itemId: string }) {
   const [note, setNote] = useState("");
   const [verdict, setVerdict] = useState<Verdict>("no-effect");
   const [choice, setChoice] = useState<DecisionKind | null>(null);
+  const [startOn, setStartOn] = useState<string | null>(null);
   if (!item) return null;
   const today = appToday();
   const j = journeyFor({ item, logs, effects, decisions, today });
@@ -510,6 +512,12 @@ export function EvaluateSheet({ itemId }: { itemId: string }) {
     { kind: "more-time", label: "Give it 2 more weeks", detail: "Not enough to judge yet." },
     { kind: "stop", label: "Stop", detail: "Keep the record as a finished experiment." },
   ];
+  const tomorrow = addDays(today, 1);
+  const takenToday = logs.some(
+    (l) => l.itemId === item.id && l.date === today && l.status === "taken",
+  );
+  const start = startOn ?? (takenToday ? tomorrow : today);
+  const changing = pick === "step-up" || pick === "lower";
   const earnsXp =
     countedDecisions([...decisions, { id: "new", itemId: item.id, date: today, kind: pick }]) >
     countedDecisions(decisions.filter((d) => !(d.itemId === item.id && d.date === today)));
@@ -533,7 +541,7 @@ export function EvaluateSheet({ itemId }: { itemId: string }) {
             {formatShortDate(j.nextEval)}. You can change your mind, but it won't earn XP again.
           </p>
         )}
-        {(swapUp || swapDown) && (
+        {(swapUp || (swapDown && j.recommendation.kind === "lower")) && (
           <SwapCard
             swap={(swapUp ?? swapDown)!}
             unit={item.unit}
@@ -603,6 +611,28 @@ export function EvaluateSheet({ itemId }: { itemId: string }) {
             </button>
           ))}
         </div>
+        {changing && (
+          <div className="space-y-1.5">
+            <p className="text-sm font-medium">Starting</p>
+            <div className="flex flex-wrap gap-2">
+              <Chip on={start === today} onClick={() => setStartOn(today)}>
+                Today
+              </Chip>
+              <Chip on={start === tomorrow} onClick={() => setStartOn(tomorrow)}>
+                Tomorrow
+              </Chip>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {takenToday
+                ? start === tomorrow
+                  ? "You already took today's dose, so today stays at the old dose and tomorrow is your dose-up day."
+                  : "Today's logged dose will count at the new amount."
+                : start === today
+                  ? "Take the new dose from your next window today."
+                  : "Today stays at the old dose."}
+            </p>
+          </div>
+        )}
         {pick === "stop" && (
           <div className="flex flex-wrap gap-2">
             {(Object.keys(VERDICT_COPY) as Verdict[]).map((v) => (
@@ -646,17 +676,18 @@ export function EvaluateSheet({ itemId }: { itemId: string }) {
                 : undefined,
               note,
               verdict,
+              startOn: changing ? start : undefined,
             });
             toast(earnsXp ? `Decision logged: +${XP.decision} XP` : "Decision updated", {
               description:
                 pick === "step-up"
                   ? swapUp
-                    ? `${swapUp.product.brand} ${swapUp.product.name}, ${swapUp.units} per dose, from today.`
-                    : `${doseLabel(item, up!)} from today.`
+                    ? `${swapUp.product.brand} ${swapUp.product.name}, ${swapUp.units} per dose, from ${start === today ? "today" : "tomorrow"}.`
+                    : `${doseLabel(item, up!)} from ${start === today ? "today" : "tomorrow"}.`
                   : pick === "lower"
                     ? swapDown
-                      ? `${swapDown.product.brand} ${swapDown.product.name}, ${swapDown.units} per dose, from today.`
-                      : `${doseLabel(item, down!)} from today.`
+                      ? `${swapDown.product.brand} ${swapDown.product.name}, ${swapDown.units} per dose, from ${start === today ? "today" : "tomorrow"}.`
+                      : `${doseLabel(item, down!)} from ${start === today ? "today" : "tomorrow"}.`
                     : pick === "stop"
                       ? "Moved to past experiments."
                       : pick === "keep"

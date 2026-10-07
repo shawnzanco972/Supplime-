@@ -85,6 +85,10 @@ export function AppFrame() {
   // Bumps every minute and when the app returns, so "due now", today's date and the
   // reminder schedule never go stale.
   const [now, setNow] = useState(() => Date.now());
+  // A dose change scheduled for "tomorrow" starts when the new day begins.
+  useEffect(() => {
+    useSupplime.getState().applyPendingDoses();
+  }, [now]);
 
   useEffect(() => {
     const id = window.setInterval(() => setNow(Date.now()), 60_000);

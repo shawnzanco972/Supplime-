@@ -22,6 +22,7 @@ import type {
   ItemOverrides,
   ItemProduct,
   MissReason,
+  PendingDose,
   PersistedData,
   Profile,
   Rhythm,
@@ -108,6 +109,8 @@ export type ItemDraft = Partial<
   amount?: number;
   /** new-step: you changed the dose from today. correction: the dose was entered wrong. */
   doseChange?: "new-step" | "correction";
+  /** For a new step: the day it starts (tomorrow if today's dose was already taken). */
+  startOn?: string;
 };
 
 /** Switching to a different-strength bottle as part of a dose change. */
@@ -173,8 +176,18 @@ type SupplimeStore = PersistedData & {
   decide: (
     itemId: string,
     kind: DecisionKind,
-    opts?: { to?: number; note?: string; verdict?: Verdict; swapTo?: SwapTo },
+    opts?: {
+      to?: number;
+      note?: string;
+      verdict?: Verdict;
+      swapTo?: SwapTo;
+      /** When the new dose starts (default: tomorrow if today's dose is already taken). */
+      startOn?: string;
+    },
   ) => void;
+  /** Start any dose changes whose day has come. */
+  applyPendingDoses: (today?: string) => void;
+  cancelPendingDose: (itemId: string) => void;
   setDay: (date: string, patch: Partial<Omit<DayContext, "date">>) => void;
   revealFact: (factId: string, date?: string) => void;
   setRhythm: (rhythm: Rhythm) => void;
@@ -316,6 +329,33 @@ function applyDoseChange(item: StackItem, amount: number, unit: string, date: st
   return { ...item, amount, unit, doseHistory: steps, servingsPerDose: pillCount(item, amount) };
 }
 
+/** A dose change starts tomorrow if you already took today's dose at the old one. */
+export function defaultStart(logs: DoseLog[], itemId: string, today: string) {
+  const takenToday = logs.some(
+    (l) => l.itemId === itemId && l.date === today && l.status === "taken",
+  );
+  return takenToday ? addDays(today, 1) : today;
+}
+
+/** Put a dose change into effect on `date` (new step, new pill count, maybe a new bottle). */
+function startDose(item: StackItem, p: PendingDose, date: string): StackItem {
+  if (p.product) {
+    const next = applyDoseChange(
+      { ...item, product: p.product, servingLabel: undefined },
+      p.amount,
+      item.unit,
+      date,
+    );
+    return {
+      ...next,
+      servingsPerDose: p.units,
+      servingsRemaining: p.bottle ?? next.servingsRemaining,
+      servingsPerContainer: p.bottle ?? next.servingsPerContainer,
+    };
+  }
+  return { ...applyDoseChange(item, p.amount, item.unit, date), servingsPerDose: p.units };
+}
+
 /** Pills per dose for a new amount, when we know what one pill holds. */
 function pillCount(item: StackItem, amount: number) {
   if (unitStrength(item).source === "none") return item.servingsPerDose ?? 1;
@@ -450,7 +490,7 @@ export const useSupplime = create<SupplimeStore>()(
         },
 
         saveItem: (id, draft) => {
-          const { doseChange, startedAt, ...rest } = draft;
+          const { doseChange, startedAt, startOn, ...rest } = draft;
           let amount = draft.amount;
           mapItem(id, (item) => {
             const product = rest.product ?? item.product;
@@ -477,6 +517,19 @@ export const useSupplime = create<SupplimeStore>()(
                   doseHistory: next.doseHistory.map((s, i, all) =>
                     i === all.length - 1 ? { ...s, amount: newAmount } : s,
                   ),
+                };
+              } else if (startOn && startOn > appToday()) {
+                // Starts tomorrow: today stays at the old dose.
+                next = {
+                  ...next,
+                  amount: item.amount,
+                  servingsPerDose: item.servingsPerDose,
+                  pendingDose: {
+                    date: startOn,
+                    kind: newAmount > item.amount ? "step-up" : "lower",
+                    amount: newAmount,
+                    units: rest.servingsPerDose ?? pillCount(item, newAmount),
+                  },
                 };
               } else {
                 next = applyDoseChange(next, amount, next.unit, appToday());
@@ -697,27 +750,47 @@ export const useSupplime = create<SupplimeStore>()(
           set({
             decisions: [...state.decisions.filter((d) => !sameDay.includes(d)), decision],
           });
-          if ((kind === "step-up" || kind === "lower") && opts?.swapTo) {
-            const { product, units, bottle } = opts.swapTo;
-            const amount = Math.round(units * product.dosePerUnit * 1000) / 1000;
-            // New bottle, new strength: record the dose step, then count the new pills.
-            mapItem(itemId, (i) =>
-              applyDoseChange(
-                { ...i, product, servingLabel: undefined },
-                amount,
-                i.unit,
-                date,
-              ),
-            );
-            mapItem(itemId, (i) => ({
-              ...i,
-              servingsPerDose: units,
-              servingsRemaining: bottle,
-              servingsPerContainer: bottle,
-            }));
-          } else if ((kind === "step-up" || kind === "lower") && opts?.to)
-            get().changeDose(itemId, opts.to);
+          if ((kind === "step-up" || kind === "lower") && (opts?.swapTo || opts?.to)) {
+            const startOn = opts.startOn ?? defaultStart(state.logs, itemId, date);
+            const units = opts.swapTo?.units ?? pillsFor(item, opts.to!);
+            const amount = opts.swapTo
+              ? Math.round(opts.swapTo.units * opts.swapTo.product.dosePerUnit * 1000) / 1000
+              : opts.to!;
+            const pending: PendingDose = {
+              date: startOn,
+              kind,
+              amount,
+              units,
+              product: opts.swapTo?.product,
+              bottle: opts.swapTo?.bottle,
+            };
+            if (startOn > date) mapItem(itemId, (i) => ({ ...i, pendingDose: pending }));
+            else mapItem(itemId, (i) => startDose({ ...i, pendingDose: undefined }, pending, date));
+          }
           if (kind === "stop") get().archiveItem(itemId, opts?.verdict ?? "no-effect", opts?.note);
+        },
+
+        applyPendingDoses: (today = appToday()) => {
+          const due = get().stack.filter((i) => i.pendingDose && i.pendingDose.date <= today);
+          if (!due.length) return;
+          set({
+            stack: get().stack.map((i) =>
+              i.pendingDose && i.pendingDose.date <= today
+                ? startDose({ ...i, pendingDose: undefined }, i.pendingDose, i.pendingDose.date)
+                : i,
+            ),
+          });
+        },
+        cancelPendingDose: (itemId) => {
+          const state = get();
+          const today = appToday();
+          set({
+            stack: state.stack.map((i) => (i.id === itemId ? { ...i, pendingDose: undefined } : i)),
+            // The decision that scheduled it goes too.
+            decisions: state.decisions.filter(
+              (d) => !(d.itemId === itemId && d.date === today && (d.kind === "step-up" || d.kind === "lower")),
+            ),
+          });
         },
 
         setDay: (date, patch) => {
