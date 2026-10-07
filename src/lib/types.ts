@@ -210,6 +210,10 @@ export type DoseLog = {
   remindAt?: string;
   /** Reconstructed from "I've been taking it since…" rather than logged on the day. */
   backfill?: boolean;
+  /** Fixed later from the history editor (counts like history, not a live dose). */
+  edited?: boolean;
+  /** Marked "I was away": a pause, not counted against consistency. */
+  away?: boolean;
 };
 
 /** Things about one particular day: when you actually got up, coffee, a drink. */

@@ -1,4 +1,5 @@
 import { nextStep, pillsFor, profileFor, unitStrength } from "./knowledge";
+import { capsuleSwap, type Swap } from "./swap";
 import { currentStep, daysAtDose, daysOn, effectHistory, firstFelt, latestEffect } from "./stats";
 import type { Decision, DecisionKind, DoseLog, EffectLog, StackItem } from "./types";
 import { addDays, daysBetween, formatShortDate, todayKey } from "./utils";
@@ -29,6 +30,8 @@ export type Recommendation = {
   title: string;
   why: string;
   to?: number;
+  /** The step needs a different-strength bottle. */
+  swap?: Swap;
 };
 
 export type Journey = ReturnType<typeof journeyFor>;
@@ -61,7 +64,15 @@ export function journeyFor(input: {
   const takenDates = new Set(mine.map((l) => l.date));
   const firstLog = [...takenDates].sort()[0];
   const trackedFrom = firstLog && firstLog > stepStart ? firstLog : stepStart;
-  const trackedDays = firstLog ? daysBetween(trackedFrom, today) + 1 : 0;
+  // Days you were away count as a pause, not as misses.
+  const awayDates = new Set(
+    logs
+      .filter((l) => l.itemId === item.id && l.away && l.date >= trackedFrom && !takenDates.has(l.date))
+      .map((l) => l.date),
+  );
+  const trackedDays = firstLog
+    ? Math.max(0, daysBetween(trackedFrom, today) + 1 - awayDates.size)
+    : 0;
   const consistency = trackedDays > 0 ? Math.min(1, takenDates.size / trackedDays) : null;
 
   const felt = firstFelt(item, effects);
@@ -224,6 +235,7 @@ export function journeyFor(input: {
     changedToday,
     previousStep,
     missedDays,
+    awayDays: awayDates.size,
     /** 0–1 position on the timeline to the verdict day, for progress bars. */
     progress: Math.min(1, day / Math.max(p.evaluateDay, daysBetween(item.startedAt, nextEval) + 1)),
   };
@@ -248,6 +260,15 @@ function recommend(x: {
   const { item } = x;
   const dose = doseLabel(item, item.amount);
   if (x.recentSide) {
+    const downSwap = capsuleSwap(item, -1);
+    if (downSwap)
+      return {
+        kind: "lower",
+        to: downSwap.amount,
+        swap: downSwap,
+        title: `Lower to ${trimNum(downSwap.amount)} ${item.unit} with a new bottle`,
+        why: `You logged side effects recently. ${downSwap.why}`,
+      };
     const lower = nextStep(item, -1);
     return lower
       ? {
@@ -315,17 +336,29 @@ function recommend(x: {
       why: `${x.atDose} days at ${dose} with ${x.lastRating === 1 ? "only a maybe" : "no clear effect"}, and you're below the usual ceiling.`,
     };
   }
-  const perDay = Math.max(1, item.slots.length);
-  if (perDay > 1 && x.maxDaily !== undefined) {
+  const swap = capsuleSwap(item, 1);
+  if (swap) {
+    return {
+      kind: "step-up",
+      to: swap.amount,
+      swap,
+      title: `Step up to ${trimNum(swap.amount)} ${item.unit} with a new bottle`,
+      why: `${x.atDose} days at ${dose} with ${x.lastRating === 1 ? "only a maybe" : "no clear effect"}. ${swap.why}`,
+    };
+  }
+  // No safe step left with your pills, and no other bottle makes one.
+  if ((x.lastRating ?? 0) > 0 || x.day < x.evaluateDay) {
+    const perDay = Math.max(1, item.slots.length);
     const strength = unitStrength(item).amount;
-    const wouldBe = (pillsFor(item) + 1) * strength * perDay;
-    if (wouldBe > x.maxDaily) {
-      return {
-        kind: "keep",
-        title: "At the usual daily ceiling",
-        why: `You take ${dose} ${perDay}× a day (${trimNum(item.amount * perDay)} ${item.unit} a day). One more pill per dose would be ${trimNum(wouldBe)} ${item.unit} a day, above the usual ${x.maxDaily} ${item.unit}.`,
-      };
-    }
+    const next = (pillsFor(item) + 1) * strength;
+    return {
+      kind: "keep",
+      title: "At the usual top dose",
+      why:
+        perDay > 1
+          ? `You take ${dose} ${perDay}× a day (${trimNum(item.amount * perDay)} ${item.unit} a day). One more pill per dose would be ${trimNum(next * perDay)} ${item.unit} a day, over the usual ${x.maxDaily ?? "limit"} ${item.unit}.`
+          : `One more pill would be ${trimNum(next)} ${item.unit} in one dose, more than people usually take. Stay here, or adjust the timing.`,
+    };
   }
   if (x.day >= x.evaluateDay) {
     return {

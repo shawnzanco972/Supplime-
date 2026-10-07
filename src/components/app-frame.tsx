@@ -1,3 +1,4 @@
+import { HistoryScreen } from "@/components/history-screen";
 import { App as CapApp } from "@capacitor/app";
 import { useEffect, useState } from "react";
 import { Toaster, toast } from "sonner";
@@ -179,6 +180,7 @@ export function AppFrame() {
         <NotNowSheet itemId={overlay.itemId} slot={overlay.slot} date={overlay.date} />
       )}
       {overlay?.kind === "settings" && <SettingsScreen />}
+      {overlay?.kind === "history" && <HistoryScreen itemId={overlay.itemId} />}
       <ReminderEngine now={now} />
       <Toaster position="top-center" richColors={false} />
     </>

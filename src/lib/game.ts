@@ -224,7 +224,7 @@ export function countedDecisions(decisions: Decision[]) {
 export function totalXp(state: State, today = todayKey()) {
   let xp = 0;
   for (const log of state.logs) {
-    if (log.backfill) {
+    if (log.backfill || log.edited) {
       if (log.status === "taken") xp += XP.history;
       continue;
     }
@@ -238,10 +238,12 @@ export function totalXp(state: State, today = todayKey()) {
   xp += (state.checks?.length ?? 0) * XP.safety;
   xp += milestonesReached(state, today).length * XP.milestone;
   const streak = streakWithShields(state, today);
+  // Days you completed afterwards in the history editor don't earn full-day XP.
+  const fixedLater = new Set(state.logs.filter((l) => l.edited).map((l) => l.date));
   const installed = state.profile.installedAt ?? state.profile.joinedAt ?? "";
   for (const d of streak.days) {
     // Days rebuilt from your history earn the small history XP per dose, not full-day XP.
-    if (d.outcome !== "success" || d.date < installed) continue;
+    if (d.outcome !== "success" || d.date < installed || fixedLater.has(d.date)) continue;
     xp += XP.fullDay;
     if (bonusDay(d.date)) xp += XP.bonus;
   }

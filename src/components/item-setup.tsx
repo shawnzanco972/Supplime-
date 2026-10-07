@@ -1,3 +1,4 @@
+import { pillTooStrong } from "@/lib/knowledge";
 import { useMemo, useState } from "react";
 import {
   Chip,
@@ -193,6 +194,11 @@ export function ItemSetupForm({
           {product && <p className="text-sm text-muted-foreground">{product.brand}</p>}
           {product && (
             <p className="mt-1 text-xs text-muted-foreground">Label: {product.labelUse}</p>
+          )}
+          {product && pillTooStrong(cat?.id ?? null, product.dosePerUnit) && (
+            <p className="mt-2 rounded-lg bg-warn/15 px-2 py-1.5 text-xs text-warn">
+              {pillTooStrong(cat?.id ?? null, product.dosePerUnit)}
+            </p>
           )}
         </div>
       </div>

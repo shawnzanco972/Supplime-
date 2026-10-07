@@ -102,7 +102,7 @@ describe("knowledge: how long until it works", () => {
   it("knows each of your supplements' timeline", () => {
     const lm = profileFor(byCat("lions-mane"));
     expect([lm.firstSignsDay, lm.typicalDay, lm.minDaysBeforeIncrease, lm.evaluateDay]).toEqual([
-      7, 21, 14, 56,
+      7, 21, 28, 56,
     ]);
     const mel = profileFor(byCat("melatonin"));
     expect(mel.kind).toBe("acute");
@@ -147,7 +147,7 @@ describe("journey and verdicts", () => {
   it("says too early before the typical onset", () => {
     s().updateItem(byCat("lions-mane").id, { startedAt: addDays(TODAY, -9) });
     expect(journey().recommendation.kind).toBe("more-time");
-    expect(journey().next?.key).toBe("dose-review");
+    expect(journey().next?.key).toBe("typical");
   });
 
   it("recommends a step up after enough consistent days without effect", () => {
@@ -188,7 +188,9 @@ describe("journey and verdicts", () => {
       decisions: [],
       today: TODAY,
     });
-    expect(j.recommendation).toMatchObject({ kind: "lower", to: 0.5 });
+    // Below one pill: switch to a lower-strength bottle (Life Extension 300 mcg).
+    expect(j.recommendation).toMatchObject({ kind: "lower", to: 0.3 });
+    expect(j.recommendation.swap?.product.brand).toBe("Life Extension");
   });
 
   it("records the first day you felt it", () => {
@@ -540,7 +542,8 @@ describe("products and pills", () => {
       ],
     });
     expect(nextStep(byCat("lions-mane"), 1)).toBe(1200);
-    expect(nextStep(byCat("l-theanine"), 1)).toBe(300);
+    // 2 × 150 = 300 mg in one dose is over the ~250 mg per-dose cap: a 200 mg capsule is the step.
+    expect(nextStep(byCat("l-theanine"), 1)).toBeNull();
     s().saveItem(byCat("l-theanine").id, { servingsPerDose: 2 });
     expect(byCat("l-theanine").amount).toBe(300);
     expect(nextStep(byCat("l-theanine"), 1)).toBeNull(); // 450 mg > 400 mg ceiling
@@ -676,7 +679,7 @@ describe("v3.1: whole pills, one decision a day, skips vs sleep", () => {
   };
 
   it("steps by whole capsules, not guide numbers", () => {
-    expect(nextStep(v2Item("l-theanine", 150), 1)).toBe(300);
+    expect(nextStep(v2Item("magnesium", 100), 1)).toBe(200);
     expect(nextStep(v2Item("lions-mane", 600), 1)).toBe(1200);
   });
 
@@ -687,11 +690,39 @@ describe("v3.1: whole pills, one decision a day, skips vs sleep", () => {
     expect(nextStep(byCat("lions-mane"), -1)).toBe(500);
   });
 
-  it("says when another pill per dose would cross the daily ceiling", () => {
+  it("suggests a different capsule when another pill would cross a limit", () => {
     const item = v2Item("l-theanine", 150, ["breakfast", "afternoon"]);
     s().logEffect(item.id, 1, { date: "2026-10-01" });
     const j = journeyFor({ item: byCat("l-theanine"), logs: s().logs, effects: s().effects, decisions: [], today: TODAY });
-    expect(j.recommendation.title).toBe("At the usual daily ceiling");
+    expect(j.recommendation).toMatchObject({ kind: "step-up", to: 200 });
+    expect(j.recommendation.swap?.product.brand).toBe("NOW Foods");
+  });
+
+  it("stays put at the top dose when no bottle makes a safe step", () => {
+    const item = v2Item("l-theanine", 200, ["breakfast", "afternoon"]);
+    s().logEffect(item.id, 1, { date: "2026-10-01" });
+    const j = journeyFor({ item: byCat("l-theanine"), logs: s().logs, effects: s().effects, decisions: [], today: TODAY });
+    expect(j.recommendation.title).toBe("At the usual top dose");
+  });
+
+  it("flags bottles whose single pill is over the limit", async () => {
+    const { pillTooStrong } = await import("@/lib/knowledge");
+    expect(pillTooStrong("vitamin-d", 5000)).toMatch(/more than the usual daily maximum/);
+    expect(pillTooStrong("vitamin-d", 1000)).toBeNull();
+  });
+
+  it("fixes past days and marks a trip as away, without farming XP", () => {
+    const item = v2Item("lions-mane", 600);
+    const left = byCat("lions-mane").servingsRemaining;
+    s().setDoseRecord(item.id, "breakfast", "2026-10-01", "taken");
+    expect(byCat("lions-mane").servingsRemaining).toBe(left - 1);
+    const xp = totalXp(s(), TODAY);
+    s().setDoseRecord(item.id, "breakfast", "2026-10-02", "taken");
+    expect(totalXp(s(), TODAY) - xp).toBe(2); // history XP only
+    const n = s().markAway([item.id], "2026-10-01", "2026-10-03");
+    expect(n).toBe(3);
+    expect(s().logs.filter((l) => l.status === "skipped" && l.reason === "not-with-me")).toHaveLength(3);
+    expect(byCat("lions-mane").servingsRemaining).toBe(left);
   });
 
   it("two dose changes on one day are one decision and one step", () => {

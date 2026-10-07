@@ -2,6 +2,7 @@ import { CATALOG } from "./catalog";
 import { journeyFor } from "./journey";
 import { EXTRA, nextStep, profileFor, type Ask } from "./knowledge";
 import { productsFor } from "./products";
+import { capsuleSwap, orderByDate, type Swap } from "./swap";
 import type {
   BodyLog,
   Decision,
@@ -211,7 +212,9 @@ export type Advice = {
   planned: StackItem[];
   ideas: Idea[];
   reconsider: Reconsider[];
-  increases: { item: StackItem; to: number; why: string }[];
+  increases: { item: StackItem; to: number; why: string; swap?: Swap }[];
+  /** Steps that will need a different-strength bottle soon: order it ahead. */
+  orderAhead: { item: StackItem; swap: Swap; reviewOn: string; orderBy: string }[];
 };
 
 const EVIDENCE_SCORE = { strong: 3, moderate: 2, emerging: 1 } as const;
@@ -222,7 +225,7 @@ export function advise(state: {
   effects: EffectLog[];
   decisions: Decision[];
   checks: SafetyCheck[];
-  profile: Pick<Profile, "goals" | "rhythm" | "habits">;
+  profile: Pick<Profile, "goals" | "rhythm" | "habits"> & { reorderLeadDays?: number };
   today: string;
 }): Advice {
   const { stack, logs, effects, decisions, checks, profile, today } = state;
@@ -302,6 +305,8 @@ export function advise(state: {
   // Reconsider and dose increases.
   const reconsider: Reconsider[] = [];
   const increases: Advice["increases"] = [];
+  const orderAhead: Advice["orderAhead"] = [];
+  const lead = profile.reorderLeadDays ?? 14;
   for (const item of active) {
     const j = journeyFor({ item, logs, effects, decisions, today });
     const p = j.profile;
@@ -329,8 +334,20 @@ export function advise(state: {
         action: "switch",
       });
     }
+    // A step that needs another bottle: say so early enough to order it.
+    const upSwap = capsuleSwap(item, 1);
+    if (upSwap && !j.holding && !j.changedToday && j.phase !== "working") {
+      const reviewOn = j.doseReviewOpen ? today : j.doseReviewDate;
+      if (daysBetween(today, reviewOn) <= lead + 7)
+        orderAhead.push({ item, swap: upSwap, reviewOn, orderBy: orderByDate(reviewOn, today, lead) });
+    }
     if (j.recommendation.kind === "step-up" && j.recommendation.to) {
-      increases.push({ item, to: j.recommendation.to, why: j.recommendation.why });
+      increases.push({
+        item,
+        to: j.recommendation.to,
+        why: j.recommendation.why,
+        swap: j.recommendation.swap,
+      });
     } else if (j.recommendation.title === "Not a fair test yet") {
       reconsider.push({
         item,
@@ -356,6 +373,7 @@ export function advise(state: {
     ideas: ideas.slice(0, 4),
     reconsider,
     increases,
+    orderAhead: orderAhead.filter((o) => !increases.some((x) => x.item.id === o.item.id && x.swap)),
   };
 }
 

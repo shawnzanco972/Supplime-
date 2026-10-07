@@ -10,6 +10,7 @@ export type Overlay =
   | { kind: "add"; text?: string }
   | { kind: "not-now"; itemId: string; slot: SlotId; date: string }
   | { kind: "settings" }
+  | { kind: "history"; itemId?: string }
   | null;
 
 type NavStore = {

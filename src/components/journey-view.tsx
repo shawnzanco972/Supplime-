@@ -15,6 +15,7 @@ import { iconFor } from "@/components/product-picker";
 import { countedDecisions, gameSummary, XP } from "@/lib/game";
 import { doseLabel, journeyFor, PHASE_COPY, type Journey } from "@/lib/journey";
 import { ALL_FACTS, nextStep, unitStrength } from "@/lib/knowledge";
+import { capsuleSwap, iherbUrl, orderByDate, type Swap } from "@/lib/swap";
 import { useNav } from "@/lib/nav";
 import {
   BADGE_COPY,
@@ -139,6 +140,7 @@ const CELL: Record<Cell, string> = {
   taken: "bg-primary",
   partial: "bg-primary/45",
   missed: "bg-warn/55",
+  away: "bg-muted-foreground/25",
   open: "border border-dashed border-muted-foreground/40",
   none: "bg-transparent",
 };
@@ -146,6 +148,7 @@ const CELL: Record<Cell, string> = {
 /** Every supplement over the last 14 days, with your sleep underneath. */
 function DayGridCard() {
   const { stack, logs, body } = useSupplime();
+  const openOverlay = useNav((s) => s.open);
   const today = appToday();
   const g = useMemo(() => dayGrid({ stack, logs, body, today }), [stack, logs, body, today]);
   if (g.rows.length === 0) return null;
@@ -156,9 +159,13 @@ function DayGridCard() {
     <section className="rounded-2xl bg-card p-4 shadow-[var(--shadow-border)]">
       <div className="flex items-baseline justify-between gap-2">
         <p className="font-medium">Last 14 days</p>
-        <p className="text-[11px] text-muted-foreground">
-          {formatShortDate(g.dates[0]!)} – today
-        </p>
+        <button
+          type="button"
+          onClick={() => openOverlay({ kind: "history" })}
+          className="min-h-9 text-xs font-medium text-primary underline-offset-2 hover:underline"
+        >
+          Fix past days
+        </button>
       </div>
       <div className="mt-3 space-y-1.5" role="table" aria-label="Doses per day">
         {g.rows.map((r) => (
@@ -199,6 +206,7 @@ function DayGridCard() {
         <Legend className="bg-primary" label="taken" />
         <Legend className="bg-primary/45" label="part" />
         <Legend className="bg-warn/55" label="missed" />
+        <Legend className="bg-muted-foreground/25" label="away" />
         {hasSleep && <Legend className="bg-warn/70" label="rough night" />}
       </div>
       {g.note ? (
@@ -363,6 +371,7 @@ export function JourneyCard({
             {j.missedDays} missed day{j.missedDays === 1 ? "" : "s"} at this dose: expect it about{" "}
             {j.missedDays} day{j.missedDays === 1 ? "" : "s"} later than usual. It builds up with
             the days you actually take it.
+            {j.awayDays > 0 ? ` (${j.awayDays} days away count as a pause.)` : ""}
           </p>
         )}
         {impact.length > 0 && (
@@ -439,7 +448,7 @@ export function JourneyCard({
 /** Keep / step up / lower / more time / stop, with Supplime's recommendation first. */
 export function EvaluateSheet({ itemId }: { itemId: string }) {
   const close = useNav((s) => s.close);
-  const { stack, logs, effects, decisions, decide } = useSupplime();
+  const { stack, logs, effects, decisions, decide, profile } = useSupplime();
   const item = stack.find((i) => i.id === itemId);
   const [note, setNote] = useState("");
   const [verdict, setVerdict] = useState<Verdict>("no-effect");
@@ -447,8 +456,12 @@ export function EvaluateSheet({ itemId }: { itemId: string }) {
   if (!item) return null;
   const today = appToday();
   const j = journeyFor({ item, logs, effects, decisions, today });
-  const up = nextStep(item, 1);
-  const down = nextStep(item, -1);
+  const swapUp = capsuleSwap(item, 1);
+  const swapDown = capsuleSwap(item, -1);
+  const up = swapUp ? null : nextStep(item, 1);
+  const down = swapDown ? null : nextStep(item, -1);
+  const reviewOn = j.doseReviewOpen ? today : j.doseReviewDate;
+  const orderBy = orderByDate(reviewOn, today, profile.reorderLeadDays ?? 14);
   const checks = effectHistory(item, effects).slice(-5);
   const pick = choice ?? j.recommendation.kind;
   const lastNote = [...j.decisions].reverse().find((d) => d.note);
@@ -466,21 +479,33 @@ export function EvaluateSheet({ itemId }: { itemId: string }) {
     },
     {
       kind: "step-up",
-      label: up ? `Step up to ${doseLabel(item, up)}` : "Step up",
+      label: swapUp
+        ? `Step up to ${round(swapUp.amount)} ${item.unit}: new bottle`
+        : up
+          ? `Step up to ${doseLabel(item, up)}`
+          : "Step up",
       detail: locked
         ? `Locked until ${formatShortDate(j.doseReviewDate)}`
-        : up
-          ? `One more pill per dose${perDayNote(up)}. The clock restarts.`
-          : "Already at the usual top dose.",
-      disabled: !up || locked,
+        : swapUp
+          ? `I have the ${swapUp.product.brand} bottle: ${swapUp.units} × ${round(swapUp.product.dosePerUnit)} ${item.unit}${perDayNote(swapUp.amount)}.`
+          : up
+            ? `One more pill per dose${perDayNote(up)}. The clock restarts.`
+            : "Already at the usual top dose.",
+      disabled: !(up || swapUp) || locked,
     },
     {
       kind: "lower",
-      label: down ? `Lower to ${doseLabel(item, down)}` : "Lower",
-      detail: down
-        ? `Less can be more, especially with side effects${perDayNote(down)}.`
-        : "Already at the lowest usual dose.",
-      disabled: !down,
+      label: swapDown
+        ? `Lower to ${round(swapDown.amount)} ${item.unit}: new bottle`
+        : down
+          ? `Lower to ${doseLabel(item, down)}`
+          : "Lower",
+      detail: swapDown
+        ? `I have the ${swapDown.product.brand} bottle: ${swapDown.units} × ${round(swapDown.product.dosePerUnit)} ${item.unit}${perDayNote(swapDown.amount)}.`
+        : down
+          ? `Less can be more, especially with side effects${perDayNote(down)}.`
+          : "Already at the lowest usual dose.",
+      disabled: !(down || swapDown),
     },
     { kind: "more-time", label: "Give it 2 more weeks", detail: "Not enough to judge yet." },
     { kind: "stop", label: "Stop", detail: "Keep the record as a finished experiment." },
@@ -507,6 +532,15 @@ export function EvaluateSheet({ itemId }: { itemId: string }) {
             You already decided on {formatShortDate(j.lastDecision.date)}. Next check{" "}
             {formatShortDate(j.nextEval)}. You can change your mind, but it won't earn XP again.
           </p>
+        )}
+        {(swapUp || swapDown) && (
+          <SwapCard
+            swap={(swapUp ?? swapDown)!}
+            unit={item.unit}
+            orderBy={orderBy}
+            reviewOn={reviewOn}
+            today={today}
+          />
         )}
         {guessed && (up || down) && (
           <p className="text-xs text-muted-foreground">
@@ -586,22 +620,43 @@ export function EvaluateSheet({ itemId }: { itemId: string }) {
         <Button
           className="w-full"
           onClick={() => {
+            const swap = pick === "step-up" ? swapUp : pick === "lower" ? swapDown : null;
             decide(item.id, pick, {
               to:
                 pick === "step-up"
-                  ? (up ?? undefined)
+                  ? (swapUp?.amount ?? up ?? undefined)
                   : pick === "lower"
-                    ? (down ?? undefined)
+                    ? (swapDown?.amount ?? down ?? undefined)
                     : undefined,
+              swapTo: swap
+                ? {
+                    product: {
+                      id: swap.product.id,
+                      brand: swap.product.brand,
+                      name: swap.product.name,
+                      form: swap.product.form,
+                      perUnit: swap.product.perUnit,
+                      dosePerUnit: swap.product.dosePerUnit,
+                      labelServing: swap.product.labelServing,
+                      labelUse: swap.product.labelUse,
+                    },
+                    units: swap.units,
+                    bottle: swap.product.counts[0] ?? 60,
+                  }
+                : undefined,
               note,
               verdict,
             });
             toast(earnsXp ? `Decision logged: +${XP.decision} XP` : "Decision updated", {
               description:
                 pick === "step-up"
-                  ? `${doseLabel(item, up!)} from today.`
+                  ? swapUp
+                    ? `${swapUp.product.brand} ${swapUp.product.name}, ${swapUp.units} per dose, from today.`
+                    : `${doseLabel(item, up!)} from today.`
                   : pick === "lower"
-                    ? `${doseLabel(item, down!)} from today.`
+                    ? swapDown
+                      ? `${swapDown.product.brand} ${swapDown.product.name}, ${swapDown.units} per dose, from today.`
+                      : `${doseLabel(item, down!)} from today.`
                     : pick === "stop"
                       ? "Moved to past experiments."
                       : pick === "keep"
@@ -619,6 +674,42 @@ export function EvaluateSheet({ itemId }: { itemId: string }) {
 }
 
 const round = (n: number) => Math.round(n * 100) / 100;
+
+/** "Order ahead" for a step that needs a different-strength bottle. */
+export function SwapCard({
+  swap,
+  unit,
+  orderBy,
+  reviewOn,
+  today,
+}: {
+  swap: Swap;
+  unit: string;
+  orderBy: string;
+  reviewOn: string;
+  today: string;
+}) {
+  return (
+    <div className="space-y-2 rounded-2xl border-2 border-dashed border-primary/40 p-3">
+      <p className="text-xs font-medium tracking-wide text-primary uppercase">
+        Plan ahead: different capsule
+      </p>
+      <p className="text-sm">{swap.why}</p>
+      <p className="text-sm font-medium">
+        {orderBy <= today
+          ? reviewOn <= today
+            ? "Order now: the step is open as soon as it arrives."
+            : `Order now so it's here by ${formatShortDate(reviewOn)}.`
+          : `Order by ${formatShortDate(orderBy)}, before your dose review on ${formatShortDate(reviewOn)}.`}
+      </p>
+      <Button variant="outline" size="sm" asChild>
+        <a href={iherbUrl(swap.product)} target="_blank" rel="noreferrer">
+          Find it on iHerb
+        </a>
+      </Button>
+    </div>
+  );
+}
 
 function Stat({ value, label }: { value: string; label: string }) {
   return (
@@ -806,7 +897,11 @@ function WhatsNext() {
   const a = advise({ ...state, today });
   const startPlanned = state.startPlanned;
   const nothing =
-    !a.planned.length && !a.increases.length && !a.reconsider.length && !a.ideas.length;
+    !a.planned.length &&
+    !a.increases.length &&
+    !a.orderAhead.length &&
+    !a.reconsider.length &&
+    !a.ideas.length;
   if (nothing) return null;
   return (
     <section className="space-y-3">
@@ -860,10 +955,31 @@ function WhatsNext() {
             Ready for a higher dose
           </p>
           <p className="mt-1 font-medium">
-            {x.item.name}: {fmtDose(x.item, x.item.amount)} → {fmtDose(x.item, x.to)}
+            {x.item.name}: {fmtDose(x.item, x.item.amount)} →{" "}
+            {x.swap
+              ? `${x.swap.units} × ${x.swap.product.brand} ${round(x.swap.product.dosePerUnit)} ${x.item.unit}`
+              : fmtDose(x.item, x.to)}
           </p>
           <p className="mt-1 text-sm text-muted-foreground">{x.why}</p>
+          {x.swap && (
+            <p className="mt-1 text-sm font-medium text-primary">
+              Needs a new bottle: order it now.
+            </p>
+          )}
         </button>
+      ))}
+
+      {a.orderAhead.map((o) => (
+        <div key={o.item.id}>
+          <p className="mb-1.5 text-sm font-medium">{o.item.name}</p>
+          <SwapCard
+            swap={o.swap}
+            unit={o.item.unit}
+            orderBy={o.orderBy}
+            reviewOn={o.reviewOn}
+            today={today}
+          />
+        </div>
       ))}
 
       {a.reconsider.map((r) => (

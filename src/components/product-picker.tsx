@@ -24,6 +24,7 @@ import { useMemo, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { CATALOG, searchCatalog } from "@/lib/catalog";
 import { EXTRA, profileFor } from "@/lib/knowledge";
+import { pillTooStrong } from "@/lib/knowledge";
 import { brandsFor, contentsLabel, productsFor, type Product } from "@/lib/products";
 import type { CatalogItem, StackItem } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -160,6 +161,11 @@ export function ProductPicker({
                 {p.counts.join(" / ")} {p.form === "scoop" ? "servings" : "per bottle"} · label:{" "}
                 {p.labelUse}
               </p>
+              {pillTooStrong(type.id, p.dosePerUnit) && (
+                <p className="mt-1.5 rounded-lg bg-warn/15 px-2 py-1 text-xs text-warn">
+                  Strong: one pill is over the usual daily maximum.
+                </p>
+              )}
             </button>
           ))}
         </div>

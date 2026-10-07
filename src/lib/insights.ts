@@ -7,7 +7,7 @@ import { addDays } from "./utils";
  * so the night after day D is the body entry for D + 1.
  */
 
-export type Cell = "taken" | "partial" | "missed" | "open" | "none";
+export type Cell = "taken" | "partial" | "missed" | "away" | "open" | "none";
 
 export type DayGrid = {
   dates: string[];
@@ -20,7 +20,7 @@ export type DayGrid = {
   note: string | null;
 };
 
-function cellFor(item: StackItem, logs: DoseLog[], date: string, today: string): Cell {
+export function cellFor(item: StackItem, logs: DoseLog[], date: string, today: string): Cell {
   if (date < item.startedAt || item.planned) return "none";
   if (item.archived && date > item.archived.date) return "none";
   const planned = Math.max(1, item.slots.length);
@@ -29,6 +29,7 @@ function cellFor(item: StackItem, logs: DoseLog[], date: string, today: string):
   ).length;
   if (taken >= planned) return "taken";
   if (taken > 0) return "partial";
+  if (logs.some((l) => l.itemId === item.id && l.date === date && l.away)) return "away";
   return date >= today ? "open" : "missed";
 }
 

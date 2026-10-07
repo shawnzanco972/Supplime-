@@ -689,8 +689,94 @@ export type Profile = {
   watch: string[];
   evidence: Evidence;
   maxDaily?: number;
+  /** Most per single dose (where a big single dose is the issue, e.g. theanine). */
+  perDoseMax?: number;
+  /** Where the limits come from. */
+  doseSource?: string;
   needsLabs?: boolean;
 };
+
+/**
+ * Dose limits checked against references (Oct 2026): NIH ODS / EFSA upper limits and the
+ * doses used in human trials. These win over the older defaults above.
+ * Rules the app follows: one pill (≤ +100%) per step, wait at least one onset window,
+ * never cross an upper limit from supplements, and when a pill can't make a safe step,
+ * suggest a different-strength bottle instead.
+ */
+const DOSE_RULES: Record<
+  string,
+  {
+    minDays?: number;
+    steps?: number[];
+    maxDaily?: number;
+    perDoseMax?: number;
+    noStepUp?: string;
+    source: string;
+  }
+> = {
+  "lions-mane": {
+    minDays: 28,
+    steps: [500, 600, 1000, 1200, 1500, 1800, 2000, 2400],
+    maxDaily: 3000,
+    source: "Mori 2009: 3 g/day fruiting body for 16 weeks, benefit from week 8 (pubmed 18844328)",
+  },
+  "l-theanine": {
+    minDays: 5,
+    steps: [100, 150, 200, 300, 400],
+    maxDaily: 400,
+    perDoseMax: 250,
+    source: "Trials use ~200 mg per dose, up to 400 mg/day (Hidese 2019, pubmed 31623400)",
+  },
+  melatonin: {
+    steps: [0.3, 0.5, 1, 3],
+    maxDaily: 3,
+    source: "0.3 mg worked as well as 3 mg without next-day carry-over (Zhdanova 2001, pubmed 11600532)",
+  },
+  "omega-3": {
+    minDays: 56,
+    steps: [600, 900, 1000, 1200, 2000],
+    maxDaily: 3000,
+    source: "EFSA: up to 5 g EPA+DHA/day raises no safety concern; omega-3 index plateaus in 8–12 weeks",
+  },
+  magnesium: {
+    maxDaily: 350,
+    source: "NIH ODS upper limit: 350 mg/day from supplements",
+  },
+  "vitamin-d": {
+    minDays: 84,
+    steps: [1000, 2000, 3000, 4000],
+    maxDaily: 4000,
+    source: "NIH ODS / EFSA upper limit 4,000 IU (100 µg); blood levels plateau in 8–12 weeks",
+  },
+  zinc: {
+    maxDaily: 40,
+    source: "NIH ODS upper limit 40 mg (EFSA 25 mg); long-term high zinc lowers copper",
+  },
+  "vitamin-k2": { steps: [100, 200], source: "NIH ODS vitamin K fact sheet" },
+  ashwagandha: {
+    minDays: 28,
+    maxDaily: 600,
+    source: "Trials: 600 mg/day for 8+ weeks; rare liver injury reported (NIH LiverTox)",
+  },
+  rhodiola: { steps: [200, 400, 600], maxDaily: 600, source: "Trials used ~200–680 mg/day" },
+  bacopa: { minDays: 56, source: "Memory effects appear around week 12 in trials" },
+  creatine: {
+    maxDaily: 10,
+    noStepUp:
+      "3–5 g a day fully saturates your muscles in about 4 weeks; more adds nothing. Consistency matters, not dose.",
+    source: "ISSN position stand (pubmed 28615996)",
+  },
+  reishi: { minDays: 14, source: "No defined wait in trials; two weeks per step" },
+  cordyceps: { minDays: 14, source: "No defined wait in trials; two weeks per step" },
+};
+
+/** One pill of this bottle is already above the safe daily amount. */
+export function pillTooStrong(catalogId: string | null, dosePerUnit: number): string | null {
+  if (!catalogId) return null;
+  const max = DOSE_RULES[catalogId]?.maxDaily ?? EXTRA[catalogId]?.maxDaily;
+  if (max === undefined || dosePerUnit <= max + 1e-9) return null;
+  return `One pill (${dosePerUnit}) is more than the usual daily maximum of ${max}. Only with a doctor's advice or a blood test; otherwise pick a lower strength.`;
+}
 
 /** Everything Supplime knows about one stack item, with your own overrides on top. */
 export function profileFor(item: StackItem): Profile {
@@ -708,6 +794,7 @@ export function profileFor(item: StackItem): Profile {
     (cat ? Math.round((cat.onset.days.min + cat.onset.days.max) / 2) : base.typical);
   const evaluate = o.evaluateDay ?? k?.evaluateDay ?? base.evaluate;
   const rules = o.rules ?? k?.rules ?? defaultRules(item);
+  const rule = item.catalogId ? DOSE_RULES[item.catalogId] : undefined;
 
   return {
     kind: cat?.onset.kind ?? "cumulative",
@@ -716,10 +803,14 @@ export function profileFor(item: StackItem): Profile {
     typicalDay: Math.max(firstSigns, typical),
     windowEndDay: Math.max(windowEnd, typical),
     minDaysBeforeIncrease:
-      o.minDaysBeforeIncrease ?? k?.minDaysBeforeIncrease ?? cat?.increaseAfterDays ?? 14,
+      o.minDaysBeforeIncrease ??
+      rule?.minDays ??
+      k?.minDaysBeforeIncrease ??
+      cat?.increaseAfterDays ??
+      14,
     evaluateDay: Math.max(evaluate, typical),
-    steps: k?.steps ?? [],
-    noStepUp: k?.noStepUp,
+    steps: rule?.steps ?? k?.steps ?? [],
+    noStepUp: rule?.noStepUp ?? k?.noStepUp,
     rules,
     missed: o.missed ?? k?.missed ?? "catch-up",
     facts: k?.facts ?? [],
@@ -738,7 +829,9 @@ export function profileFor(item: StackItem): Profile {
     asks: x?.asks.length ? x.asks : [ask("general", `Do you notice ${item.name} helping?`)],
     watch: x?.watch ?? [],
     evidence: x?.evidence ?? "emerging",
-    maxDaily: x?.maxDaily,
+    maxDaily: rule?.maxDaily ?? x?.maxDaily,
+    perDoseMax: rule?.perDoseMax,
+    doseSource: rule?.source,
     needsLabs: x?.needsLabs,
   };
 }
@@ -805,7 +898,9 @@ export function pillsFor(item: StackItem, amount = item.amount) {
 export function nextStep(item: StackItem, direction: 1 | -1): number | null {
   const p = profileFor(item);
   const perDay = Math.max(1, item.slots.length);
-  const fits = (amount: number) => p.maxDaily === undefined || amount * perDay <= p.maxDaily + 1e-9;
+  const fits = (amount: number) =>
+    (p.maxDaily === undefined || amount * perDay <= p.maxDaily + 1e-9) &&
+    (p.perDoseMax === undefined || amount <= p.perDoseMax + 1e-9);
   const strength = unitStrength(item);
   const guideStep = () =>
     direction === 1

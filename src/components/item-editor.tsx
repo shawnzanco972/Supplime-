@@ -55,6 +55,7 @@ export function ItemEditor({ itemId }: { itemId: string }) {
 
 function Editor({ item, onClose }: { item: StackItem; onClose: () => void }) {
   const profile = useSupplime((s) => s.profile);
+  const openOverlay = useNav((s) => s.open);
   const effects = useSupplime((s) => s.effects);
   const saveItem = useSupplime((s) => s.saveItem);
   const removeItem = useSupplime((s) => s.removeItem);
@@ -536,6 +537,17 @@ function Editor({ item, onClose }: { item: StackItem; onClose: () => void }) {
             </Button>
           </div>
         </Section>
+
+        {!item.planned && (
+          <Section
+            title="History"
+            hint="Forgot to log, or were away? Fix any day of the last 6 weeks."
+          >
+            <Button variant="outline" onClick={() => openOverlay({ kind: "history", itemId: item.id })}>
+              Edit past days
+            </Button>
+          </Section>
+        )}
 
         <Section title="Notes & check-ins">
           <Textarea

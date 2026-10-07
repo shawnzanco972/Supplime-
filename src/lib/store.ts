@@ -29,7 +29,7 @@ import type {
   StackItem,
   Verdict,
 } from "./types";
-import { uid } from "./utils";
+import { addDays, uid } from "./utils";
 
 export const defaultHabits = (): Habits => ({
   coffee: true,
@@ -110,6 +110,9 @@ export type ItemDraft = Partial<
   doseChange?: "new-step" | "correction";
 };
 
+/** Switching to a different-strength bottle as part of a dose change. */
+export type SwapTo = { product: ItemProduct; units: number; bottle: number };
+
 type SupplimeStore = PersistedData & {
   hydrated: boolean;
   setHydrated: (value: boolean) => void;
@@ -150,6 +153,17 @@ type SupplimeStore = PersistedData & {
     date?: string,
   ) => void;
   undoDose: (itemId: string, slot: SlotId, date?: string) => void;
+  /** Fix a past day: taken, skipped, or clear it. Adjusts pills left. */
+  setDoseRecord: (
+    itemId: string,
+    slot: SlotId,
+    date: string,
+    status: "taken" | "skipped" | null,
+    reason?: MissReason,
+    away?: boolean,
+  ) => void;
+  /** Away from `from` to `to`: every planned dose of these items becomes "skipped, not with me". */
+  markAway: (itemIds: string[], from: string, to: string) => number;
   logEffect: (
     itemId: string,
     rating: EffectRating,
@@ -159,7 +173,7 @@ type SupplimeStore = PersistedData & {
   decide: (
     itemId: string,
     kind: DecisionKind,
-    opts?: { to?: number; note?: string; verdict?: Verdict },
+    opts?: { to?: number; note?: string; verdict?: Verdict; swapTo?: SwapTo },
   ) => void;
   setDay: (date: string, patch: Partial<Omit<DayContext, "date">>) => void;
   revealFact: (factId: string, date?: string) => void;
@@ -577,6 +591,63 @@ export const useSupplime = create<SupplimeStore>()(
           set({ logs, stack });
         },
 
+        setDoseRecord: (itemId, slot, date, status, reason, away) => {
+          const state = get();
+          const item = state.stack.find((i) => i.id === itemId);
+          if (!item) return;
+          const existing = state.logs.find(
+            (l) => l.itemId === itemId && l.slot === slot && l.date === date,
+          );
+          const wasTaken = existing?.status === "taken";
+          const isTaken = status === "taken";
+          const others = state.logs.filter((l) => l !== existing);
+          const logs: DoseLog[] = status
+            ? [
+                ...others,
+                {
+                  id: existing?.id ?? uid(),
+                  itemId,
+                  date,
+                  slot,
+                  status,
+                  at: existing?.at ?? new Date().toISOString(),
+                  reason: status === "skipped" ? (reason ?? existing?.reason ?? "forgot") : undefined,
+                  late: isTaken ? existing?.late : undefined,
+                  edited: date < appToday() ? true : existing?.edited,
+                  away: status === "skipped" && away ? true : undefined,
+                },
+              ]
+            : others;
+          const delta = isTaken === wasTaken ? 0 : isTaken ? -1 : 1;
+          const stack = delta
+            ? state.stack.map((i) =>
+                i.id === itemId
+                  ? {
+                      ...i,
+                      servingsRemaining: Math.max(0, i.servingsRemaining + delta * i.servingsPerDose),
+                    }
+                  : i,
+              )
+            : state.stack;
+          set({ logs, stack });
+        },
+
+        markAway: (itemIds, from, to) => {
+          let n = 0;
+          for (const id of itemIds) {
+            const item = get().stack.find((i) => i.id === id);
+            if (!item || item.planned) continue;
+            for (let d = from; d <= to; d = addDays(d, 1)) {
+              if (d < item.startedAt || (item.archived && d > item.archived.date)) continue;
+              for (const slot of item.slots) {
+                get().setDoseRecord(id, slot, d, "skipped", "not-with-me", true);
+                n++;
+              }
+            }
+          }
+          return n;
+        },
+
         logEffect: (itemId, rating, opts) => {
           const state = get();
           const date = opts?.date ?? appToday();
@@ -626,7 +697,25 @@ export const useSupplime = create<SupplimeStore>()(
           set({
             decisions: [...state.decisions.filter((d) => !sameDay.includes(d)), decision],
           });
-          if ((kind === "step-up" || kind === "lower") && opts?.to)
+          if ((kind === "step-up" || kind === "lower") && opts?.swapTo) {
+            const { product, units, bottle } = opts.swapTo;
+            const amount = Math.round(units * product.dosePerUnit * 1000) / 1000;
+            // New bottle, new strength: record the dose step, then count the new pills.
+            mapItem(itemId, (i) =>
+              applyDoseChange(
+                { ...i, product, servingLabel: undefined },
+                amount,
+                i.unit,
+                date,
+              ),
+            );
+            mapItem(itemId, (i) => ({
+              ...i,
+              servingsPerDose: units,
+              servingsRemaining: bottle,
+              servingsPerContainer: bottle,
+            }));
+          } else if ((kind === "step-up" || kind === "lower") && opts?.to)
             get().changeDose(itemId, opts.to);
           if (kind === "stop") get().archiveItem(itemId, opts?.verdict ?? "no-effect", opts?.note);
         },
