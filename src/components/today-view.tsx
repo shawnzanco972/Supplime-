@@ -1,6 +1,7 @@
-import { AlarmClock, Check, Coffee, Flag, Sparkles, Sun, Undo2, Wine } from "lucide-react";
+import { AlarmClock, Check, Flag, Sparkles, Sun, Undo2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
+import { DayLog } from "@/components/day-log";
 import { EffectCheckIn, SafetyCheck } from "@/components/effect-check-in";
 import { FlagChip } from "@/components/flag-chip";
 import { LevelCard } from "@/components/level-card";
@@ -149,29 +150,8 @@ export function TodayView({ now }: { now: number }) {
             )}
           </div>
         )}
-        <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-border pt-3">
-          <span className="text-xs text-muted-foreground">Log:</span>
-          <ContextChip
-            icon={<Coffee className="size-4" />}
-            label="Coffee"
-            times={day?.coffeeAt}
-            onAdd={() =>
-              state.setDay(date, { coffeeAt: [...(day?.coffeeAt ?? []), formatHHMM(nowMin)] })
-            }
-            onClear={() => state.setDay(date, { coffeeAt: [] })}
-          />
-          <ContextChip
-            icon={<Wine className="size-4" />}
-            label="Drink"
-            times={day?.alcoholAt}
-            onAdd={() => {
-              state.setDay(date, { alcoholAt: [...(day?.alcoholAt ?? []), formatHHMM(nowMin)] });
-              toast("Noted", {
-                description: "Supplime will flag anything that clashes with alcohol tonight.",
-              });
-            }}
-            onClear={() => state.setDay(date, { alcoholAt: [] })}
-          />
+        <div className="mt-3 border-t border-border pt-3">
+          <DayLog date={date} day={day} nowMin={nowMin} />
         </div>
       </section>
 
@@ -291,6 +271,18 @@ export function TodayView({ now }: { now: number }) {
                           onNotNow={() =>
                             open({ kind: "not-now", itemId: dose.item.id, slot: dose.slot, date })
                           }
+                          onSkip={() => {
+                            state.logDose(dose.item.id, dose.slot, "skipped", date, {
+                              reason: "chose",
+                            });
+                            toast(`${dose.item.name} skipped today`, {
+                              description: "Logged honestly: +2 XP.",
+                              action: {
+                                label: "Undo",
+                                onClick: () => state.undoDose(dose.item.id, dose.slot, date),
+                              },
+                            });
+                          }}
                           onUndo={() => state.undoDose(dose.item.id, dose.slot, date)}
                           onOpen={() => open({ kind: "editor", itemId: dose.item.id })}
                         />
@@ -370,47 +362,6 @@ function untilLabel(delta: number) {
   if (delta > 0) return `in ${delta} min`;
   if (delta > -90) return "due now";
   return "overdue";
-}
-
-function ContextChip({
-  icon,
-  label,
-  times,
-  onAdd,
-  onClear,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  times?: string[];
-  onAdd: () => void;
-  onClear: () => void;
-}) {
-  const has = times && times.length > 0;
-  return (
-    <span className="inline-flex items-center">
-      <button
-        type="button"
-        onClick={onAdd}
-        className={cn(
-          "inline-flex min-h-9 items-center gap-1.5 rounded-full px-3 text-xs font-medium",
-          has ? "bg-accent text-accent-foreground" : "bg-secondary text-secondary-foreground",
-        )}
-      >
-        {icon}
-        {has ? `${label} ${times!.map((t) => formatClock(t)).join(", ")}` : `+ ${label}`}
-      </button>
-      {has && (
-        <button
-          type="button"
-          aria-label={`Clear ${label}`}
-          onClick={onClear}
-          className="min-h-9 px-1.5 text-xs text-muted-foreground"
-        >
-          ×
-        </button>
-      )}
-    </span>
-  );
 }
 
 function Quests({ quests, onAction }: { quests: Quest[]; onAction: (q: Quest) => void }) {
@@ -543,6 +494,7 @@ function DoseRow({
   late,
   onTake,
   onNotNow,
+  onSkip,
   onUndo,
   onOpen,
 }: {
@@ -552,6 +504,7 @@ function DoseRow({
   late: boolean;
   onTake: (late: boolean) => void;
   onNotNow: () => void;
+  onSkip: () => void;
   onUndo: () => void;
   onOpen: () => void;
 }) {
@@ -570,31 +523,51 @@ function DoseRow({
           </p>
         </button>
         {status === "deferred" ? (
-          <span className="text-xs text-muted-foreground">
-            catch-up {log?.remindAt ? formatClock(log.remindAt) : ""}
-          </span>
+          <div className="flex shrink-0 items-center gap-1">
+            <span className="text-xs text-muted-foreground">
+              catch-up {log?.remindAt ? formatClock(log.remindAt) : ""}
+            </span>
+            <button
+              type="button"
+              onClick={onUndo}
+              aria-label={`Undo ${dose.item.name}`}
+              className="inline-flex h-11 items-center gap-1 rounded-md px-2 text-xs font-medium text-muted-foreground hover:bg-secondary hover:text-foreground"
+            >
+              <Undo2 className="size-3.5" /> Undo
+            </button>
+          </div>
         ) : !done ? (
-          <div className="flex gap-1">
-            <Button size="sm" variant="ghost" onClick={onNotNow}>
-              Not now
+          <div className="flex shrink-0 gap-0.5">
+            <Button size="sm" variant="ghost" className="px-2.5" onClick={onSkip}>
+              Skip
+            </Button>
+            <Button size="sm" variant="ghost" className="px-2.5" onClick={onNotNow}>
+              Later
             </Button>
             <Button size="sm" onClick={() => onTake(late)}>
               Take
             </Button>
           </div>
         ) : (
-          <button
-            type="button"
-            onClick={onUndo}
-            className="inline-flex h-11 items-center gap-1 rounded-md px-2 text-xs font-medium text-muted-foreground hover:text-foreground"
-          >
-            {status === "taken" ? (
-              <Check className="size-4 text-primary" />
-            ) : (
-              <Undo2 className="size-3.5" />
-            )}
-            {status === "taken" ? (log?.late ? "Taken late" : "Taken") : "Skipped"}
-          </button>
+          <div className="flex shrink-0 items-center gap-1">
+            <span
+              className={cn(
+                "inline-flex items-center gap-1 text-xs font-medium",
+                status === "taken" ? "text-primary" : "text-muted-foreground",
+              )}
+            >
+              {status === "taken" && <Check className="size-4" />}
+              {status === "taken" ? (log?.late ? "Taken late" : "Taken") : "Skipped"}
+            </span>
+            <button
+              type="button"
+              onClick={onUndo}
+              aria-label={`Undo ${dose.item.name}`}
+              className="inline-flex h-11 items-center gap-1 rounded-md px-2 text-xs font-medium text-muted-foreground hover:bg-secondary hover:text-foreground"
+            >
+              <Undo2 className="size-3.5" /> Undo
+            </button>
+          </div>
         )}
       </div>
       {!done && shown.length > 0 && (

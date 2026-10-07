@@ -658,3 +658,91 @@ describe("your real setup: Sept 1 start, backfilled", () => {
     expect(backfillLogs(byCat("melatonin"), "2026-09-01", "2026-09-08", "every")).toHaveLength(7);
   });
 });
+
+describe("v3.1: whole pills, one decision a day, skips vs sleep", () => {
+  const v2Item = (catalogId: string, amount: number, slots: string[] = ["breakfast"]) => {
+    setup([catalogId]);
+    const item = byCat(catalogId);
+    s().updateItem(item.id, {
+      amount,
+      slots: slots as never,
+      startedAt: "2026-09-01",
+      doseHistory: [{ date: "2026-09-01", amount, unit: "mg" }],
+      product: undefined,
+      servingLabel: undefined,
+      servingsPerDose: 1,
+    });
+    return byCat(catalogId);
+  };
+
+  it("steps by whole capsules, not guide numbers", () => {
+    expect(nextStep(v2Item("l-theanine", 150), 1)).toBe(300);
+    expect(nextStep(v2Item("lions-mane", 600), 1)).toBe(1200);
+  });
+
+  it("reads the strength from a typed label", () => {
+    const item = v2Item("lions-mane", 1000);
+    s().updateItem(item.id, { servingLabel: "1 capsule= 500 mg" });
+    expect(nextStep(byCat("lions-mane"), 1)).toBe(1500);
+    expect(nextStep(byCat("lions-mane"), -1)).toBe(500);
+  });
+
+  it("says when another pill per dose would cross the daily ceiling", () => {
+    const item = v2Item("l-theanine", 150, ["breakfast", "afternoon"]);
+    s().logEffect(item.id, 1, { date: "2026-10-01" });
+    const j = journeyFor({ item: byCat("l-theanine"), logs: s().logs, effects: s().effects, decisions: [], today: TODAY });
+    expect(j.recommendation.title).toBe("At the usual daily ceiling");
+  });
+
+  it("two dose changes on one day are one decision and one step", () => {
+    const item = v2Item("lions-mane", 600);
+    s().decide(item.id, "step-up", { to: 1000 });
+    s().decide(item.id, "step-up", { to: 1200 });
+    const after = byCat("lions-mane");
+    expect(s().decisions).toHaveLength(1);
+    expect(s().decisions[0]).toMatchObject({ from: 600, to: 1200 });
+    expect(after.doseHistory.map((d) => d.amount)).toEqual([600, 1200]);
+    expect(after.servingsPerDose).toBe(2);
+    const j = journeyFor({ item: after, logs: s().logs, effects: s().effects, decisions: s().decisions, today: TODAY });
+    expect(j.changedToday).toBe(true);
+    expect(j.recommendation.title).not.toMatch(/early/i);
+  });
+
+  it("changing back the same day removes the change", () => {
+    const item = v2Item("lions-mane", 600);
+    s().changeDose(item.id, 1200);
+    s().changeDose(item.id, 600);
+    expect(byCat("lions-mane").doseHistory).toHaveLength(1);
+  });
+
+  it("keep holds the review and re-tapping it earns no XP", () => {
+    const item = v2Item("l-theanine", 150);
+    s().logEffect(item.id, 1, { date: "2026-10-01" });
+    const before = totalXp(s(), TODAY);
+    s().decide(item.id, "keep");
+    const once = totalXp(s(), TODAY);
+    s().decide(item.id, "keep");
+    expect(totalXp(s(), TODAY)).toBe(once);
+    expect(once - before).toBe(40);
+    const j = journeyFor({ item: byCat("l-theanine"), logs: s().logs, effects: s().effects, decisions: s().decisions, today: TODAY });
+    expect(j.phase).toBe("holding");
+    expect(j.recommendation.kind).toBe("keep");
+    expect(advise({ ...s(), today: TODAY }).increases).toHaveLength(0);
+  });
+
+  it("links rough nights to missed doses", async () => {
+    const { dayGrid, skipImpact } = await import("@/lib/insights");
+    const item = v2Item("melatonin", 3, ["bed"]);
+    const body = [];
+    for (let i = 1; i <= 20; i++) {
+      const date = addDays("2026-09-15", i - 1);
+      const missed = i % 4 === 0;
+      if (!missed) s().logDose(item.id, "bed", "taken", date);
+      body.push({ date: addDays(date, 1), sleepHours: missed ? 5.6 : 7.4, source: "fitbit" as const });
+    }
+    const impact = skipImpact(byCat("melatonin"), s().logs, body, TODAY);
+    expect(impact[0]).toMatchObject({ metric: "sleepHours", taken: 7.4, missed: 5.6, helps: true });
+    const g = dayGrid({ stack: s().stack, logs: s().logs, body, today: "2026-10-05" });
+    expect(g.note).toMatch(/missed Melatonin/);
+  });
+});

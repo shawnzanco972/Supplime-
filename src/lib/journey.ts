@@ -1,7 +1,7 @@
-import { nextStep, profileFor } from "./knowledge";
+import { nextStep, pillsFor, profileFor, unitStrength } from "./knowledge";
 import { currentStep, daysAtDose, daysOn, effectHistory, firstFelt, latestEffect } from "./stats";
 import type { Decision, DecisionKind, DoseLog, EffectLog, StackItem } from "./types";
-import { addDays, daysBetween, todayKey } from "./utils";
+import { addDays, daysBetween, formatShortDate, todayKey } from "./utils";
 
 export type MilestoneKey = "start" | "first-signs" | "typical" | "dose-review" | "evaluate";
 
@@ -15,7 +15,14 @@ export type Milestone = {
   reached: boolean;
 };
 
-export type Phase = "building" | "window" | "working" | "review" | "evaluate" | "stopped";
+export type Phase =
+  | "building"
+  | "window"
+  | "working"
+  | "review"
+  | "evaluate"
+  | "holding"
+  | "stopped";
 
 export type Recommendation = {
   kind: DecisionKind;
@@ -86,6 +93,16 @@ export function journeyFor(input: {
   const doseReviewDate = addDays(stepStart, p.minDaysBeforeIncrease - 1);
   const evaluateDue = !item.archived && today >= nextEval;
   const doseReviewOpen = today >= doseReviewDate;
+  // You already decided and the next check isn't due: no nagging, no repeat verdicts.
+  const holding =
+    !!lastDecision &&
+    !evaluateDue &&
+    (lastDecision.kind === "keep" || lastDecision.kind === "more-time") &&
+    today < nextEval;
+  // You changed the dose today: you can still revise it freely until you take it.
+  const changedToday =
+    step.date === today && item.doseHistory.length > 1 && item.startedAt < today;
+  const previousStep = changedToday ? item.doseHistory.at(-2) : undefined;
 
   const dateOf = (d: number) => addDays(item.startedAt, d - 1);
   const milestones: Milestone[] = [
@@ -140,12 +157,28 @@ export function journeyFor(input: {
   let phase: Phase;
   if (item.archived) phase = "stopped";
   else if (evaluateDue) phase = "evaluate";
+  else if (holding || changedToday) phase = "holding";
   else if (working) phase = "working";
   else if (day >= p.firstSignsDay)
     phase = doseReviewOpen && day >= p.typicalDay ? "review" : "window";
   else phase = "building";
 
-  const recommendation = recommend({
+  const recommendation: Recommendation = changedToday
+    ? {
+        kind: "keep",
+        title: `New dose: ${doseLabel(item, item.amount)} from today`,
+        why: `Changed today, so you can still adjust it without penalty. The next dose review opens ${formatShortDate(doseReviewDate)}.`,
+      }
+    : holding && lastDecision
+      ? {
+          kind: lastDecision.kind,
+          title:
+            lastDecision.kind === "keep"
+              ? `Keeping ${doseLabel(item, item.amount)}`
+              : "Giving it more time",
+          why: `You decided this on ${formatShortDate(lastDecision.date)}. Supplime checks in again on ${formatShortDate(nextEval)}.`,
+        }
+      : recommend({
     item,
     day,
     atDose,
@@ -159,7 +192,11 @@ export function journeyFor(input: {
     minDays: p.minDaysBeforeIncrease,
     typicalDay: p.typicalDay,
     evaluateDay: p.evaluateDay,
+    maxDaily: p.maxDaily,
   });
+
+  // Missed days at this dose push the expected onset back (cumulative supplements).
+  const missedDays = Math.max(0, trackedDays - takenDates.size);
 
   return {
     item,
@@ -182,6 +219,11 @@ export function journeyFor(input: {
     doseReviewOpen,
     recommendation,
     decisions: itemDecisions,
+    lastDecision,
+    holding,
+    changedToday,
+    previousStep,
+    missedDays,
     /** 0–1 position on the timeline to the verdict day, for progress bars. */
     progress: Math.min(1, day / Math.max(p.evaluateDay, daysBetween(item.startedAt, nextEval) + 1)),
   };
@@ -201,16 +243,17 @@ function recommend(x: {
   evaluateDay: number;
   checkIns: number;
   noStepUp?: string;
+  maxDaily?: number;
 }): Recommendation {
   const { item } = x;
-  const dose = `${item.amount} ${item.unit}`;
+  const dose = doseLabel(item, item.amount);
   if (x.recentSide) {
     const lower = nextStep(item, -1);
     return lower
       ? {
           kind: "lower",
           to: lower,
-          title: `Lower to ${lower} ${item.unit}`,
+          title: `Lower to ${doseLabel(item, lower)}`,
           why: "You logged side effects recently. A smaller dose often keeps the benefit without them.",
         }
       : {
@@ -268,9 +311,21 @@ function recommend(x: {
     return {
       kind: "step-up",
       to: up,
-      title: `Step up to ${up} ${item.unit}`,
+      title: `Step up to ${doseLabel(item, up)}`,
       why: `${x.atDose} days at ${dose} with ${x.lastRating === 1 ? "only a maybe" : "no clear effect"}, and you're below the usual ceiling.`,
     };
+  }
+  const perDay = Math.max(1, item.slots.length);
+  if (perDay > 1 && x.maxDaily !== undefined) {
+    const strength = unitStrength(item).amount;
+    const wouldBe = (pillsFor(item) + 1) * strength * perDay;
+    if (wouldBe > x.maxDaily) {
+      return {
+        kind: "keep",
+        title: "At the usual daily ceiling",
+        why: `You take ${dose} ${perDay}× a day (${trimNum(item.amount * perDay)} ${item.unit} a day). One more pill per dose would be ${trimNum(wouldBe)} ${item.unit} a day, above the usual ${x.maxDaily} ${item.unit}.`,
+      };
+    }
   }
   if (x.day >= x.evaluateDay) {
     return {
@@ -286,6 +341,22 @@ function recommend(x: {
   };
 }
 
+/** "300 mg (2 capsules)" when the pill count matters, else "300 mg". */
+export function doseLabel(item: StackItem, amount: number) {
+  const base = `${trimNum(amount)} ${item.unit}`;
+  const strength = unitStrength(item);
+  const ratio = amount / strength.amount;
+  // Less than one of your pills: that needs a lower-strength bottle.
+  if (strength.source !== "none" && Math.abs(ratio - Math.round(ratio)) > 0.01)
+    return `${base} (needs a lower-strength bottle)`;
+  const pills = pillsFor(item, amount);
+  if (!item.product && !unitStrength(item).known) return pills > 1 ? `${base} (${pills} pills)` : base;
+  const form = item.product?.form === "veg capsule" ? "capsule" : (item.product?.form ?? "capsule");
+  return `${base} (${pills} ${form}${pills === 1 ? "" : "s"})`;
+}
+
+const trimNum = (n: number) => (Number.isInteger(n) ? String(n) : String(Math.round(n * 100) / 100));
+
 export const PHASE_COPY: Record<
   Phase,
   { label: string; tone: "muted" | "accent" | "warn" | "good" }
@@ -295,5 +366,6 @@ export const PHASE_COPY: Record<
   working: { label: "Working", tone: "good" },
   review: { label: "Dose review open", tone: "warn" },
   evaluate: { label: "Verdict due", tone: "warn" },
+  holding: { label: "Decided", tone: "good" },
   stopped: { label: "Stopped", tone: "muted" },
 };

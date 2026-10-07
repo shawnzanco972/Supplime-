@@ -23,7 +23,7 @@ import { Label } from "@/components/ui/label";
 import { Confirm, Screen, Sheet } from "@/components/ui/screen";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
-import { KNOWLEDGE, profileFor } from "@/lib/knowledge";
+import { KNOWLEDGE, pillsFor, profileFor, unitStrength } from "@/lib/knowledge";
 import { contentsLabel, productsFor, unitWord } from "@/lib/products";
 import { useNav } from "@/lib/nav";
 import { EFFECT_COPY, daysOfStock, effectHistory } from "@/lib/stats";
@@ -36,7 +36,7 @@ import type {
   StackItem,
   Verdict,
 } from "@/lib/types";
-import { addDays, daysBetween, formatShortDate } from "@/lib/utils";
+import { addDays, cn, daysBetween, formatShortDate } from "@/lib/utils";
 
 export const VERDICT_COPY: Record<Verdict, string> = {
   worked: "It worked",
@@ -97,9 +97,30 @@ function Editor({ item, onClose }: { item: StackItem; onClose: () => void }) {
   });
   const set = (patch: Partial<typeof d>) => setD((prev) => ({ ...prev, ...patch }));
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [slotMode, setSlotMode] = useState<"per-dose" | "daily" | null>(null);
   const [stopOpen, setStopOpen] = useState(false);
 
   const doseChanged = d.amount !== undefined && d.amount > 0 && d.amount !== item.amount;
+  // Changing how many times a day: keep the amount per dose, or the daily total?
+  const slotsChanged = d.slots.length > 0 && d.slots.length !== item.slots.length && !doseChangedByHand();
+  const strength = unitStrength(item).amount;
+  const totalPills = pillsFor(item) * item.slots.length;
+  const dailyPills =
+    d.slots.length > 0 && totalPills % d.slots.length === 0 && totalPills / d.slots.length !== pillsFor(item)
+      ? totalPills / d.slots.length
+      : null;
+  const dailyAmount = dailyPills !== null ? Math.round(dailyPills * strength * 1000) / 1000 : null;
+  const defaultSlotMode: "per-dose" | "daily" = p.kind === "acute" || dailyPills === null ? "per-dose" : "daily";
+  const useDaily = slotsChanged && dailyPills !== null && (slotMode ?? defaultSlotMode) === "daily";
+  const perDoseLabel = (amount: number) => {
+    const n = Math.max(1, Math.round(amount / strength));
+    return `${round2(amount)} ${item.unit} (${n} ${prod ? unitWord(prod.form, n) : n === 1 ? "pill" : "pills"})`;
+  };
+  function doseChangedByHand() {
+    return d.amount !== undefined && d.amount !== item.amount;
+  }
+  const changedToday =
+    item.doseHistory.length > 1 && item.doseHistory.at(-1)?.date === today;
   const prod = d.product;
   const pills = prod ? Math.max(1, Math.round((d.amount ?? item.amount) / prod.dosePerUnit)) : 1;
   const choices = item.catalogId ? productsFor(item.catalogId) : [];
@@ -118,14 +139,17 @@ function Editor({ item, onClose }: { item: StackItem; onClose: () => void }) {
     return {
       name: d.name.trim() || item.name,
       unit: d.unit.trim() || item.unit,
-      amount: d.amount,
-      doseChange: d.doseChange,
+      amount: useDaily ? dailyAmount! : d.amount,
+      // Same daily total spread differently: fix the record, don't restart the clock.
+      doseChange: useDaily ? "correction" : d.doseChange,
       startedAt: d.startedAt,
       slots: d.slots,
       foodTiming: d.foodTiming,
       servingsRemaining: d.servingsRemaining ?? item.servingsRemaining,
       servingsPerContainer: d.servingsPerContainer ?? item.servingsPerContainer,
-      servingsPerDose: Math.max(1, d.servingsPerDose ?? item.servingsPerDose),
+      servingsPerDose: useDaily
+        ? dailyPills!
+        : Math.max(1, d.servingsPerDose ?? item.servingsPerDose),
       reorderAtDays: d.reorderAtDays ?? item.reorderAtDays,
       servingLabel: item.product ? item.servingLabel : d.servingLabel.trim() || undefined,
       notes: d.notes,
@@ -135,7 +159,7 @@ function Editor({ item, onClose }: { item: StackItem; onClose: () => void }) {
       product: d.product,
       overrides: Object.keys(overrides).length ? overrides : undefined,
     };
-  }, [d, guide, item]);
+  }, [d, guide, item, useDaily, dailyAmount, dailyPills]);
 
   const dirty = useMemo(() => {
     const before: ItemDraft = {
@@ -249,6 +273,7 @@ function Editor({ item, onClose }: { item: StackItem; onClose: () => void }) {
                         amount: Math.round(units * c.dosePerUnit * 1000) / 1000,
                         servingsPerDose: units,
                         servingsPerContainer: c.counts[0],
+                        // Linking your bottle only fixes the record.
                         doseChange: "correction",
                       });
                     }}
@@ -276,6 +301,7 @@ function Editor({ item, onClose }: { item: StackItem; onClose: () => void }) {
                   set({
                     amount: Math.round(n * prod!.dosePerUnit * 1000) / 1000,
                     servingsPerDose: n,
+                    doseChange: "new-step",
                   })
                 }
                 label={`${unitWord(prod.form, pills)} per dose`}
@@ -297,29 +323,27 @@ function Editor({ item, onClose }: { item: StackItem; onClose: () => void }) {
               </Field>
             </div>
           )}
-          {doseChanged && item.startedAt < today && (
-            <div className="space-y-2 rounded-xl bg-secondary p-3">
-              <p className="text-sm font-medium">What kind of change is this?</p>
-              <div className="flex flex-wrap gap-2">
-                <Chip
-                  on={d.doseChange === "new-step"}
-                  onClick={() => set({ doseChange: "new-step" })}
-                >
-                  New dose from today
-                </Chip>
-                <Chip
-                  on={d.doseChange === "correction"}
-                  onClick={() => set({ doseChange: "correction" })}
-                >
-                  Fixing a typo
-                </Chip>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                {d.doseChange === "new-step"
-                  ? `Supplime starts a new step and waits ${p.minDaysBeforeIncrease} days before suggesting another change.`
-                  : "The current step's dose is corrected; your timeline stays as it is."}
-              </p>
+          {doseChanged && item.startedAt < today && !changedToday && (
+            <div className="space-y-2">
+              <p className="text-sm font-medium">Is this a real change?</p>
+              <RadioCard
+                on={d.doseChange === "new-step"}
+                onClick={() => set({ doseChange: "new-step" })}
+                title="Yes, I take this from today"
+                detail={`Starts a new step on your timeline. Supplime waits ${p.minDaysBeforeIncrease} days before suggesting another change.`}
+              />
+              <RadioCard
+                on={d.doseChange === "correction"}
+                onClick={() => set({ doseChange: "correction" })}
+                title="No, I entered it wrong before"
+                detail="Fixes the record: your timeline stays as it is."
+              />
             </div>
+          )}
+          {doseChanged && changedToday && (
+            <p className="rounded-xl bg-secondary px-3 py-2 text-xs text-muted-foreground">
+              You already changed this dose today, so this just updates today's change.
+            </p>
           )}
           {!item.product && (
             <Field label="Strength per capsule (optional)" hint='For example "1 capsule = 500 mg".'>
@@ -356,11 +380,41 @@ function Editor({ item, onClose }: { item: StackItem; onClose: () => void }) {
         <Section title="When">
           <SlotHintPicker
             value={d.slots}
-            onChange={(slots) => set({ slots })}
+            onChange={(slots) => {
+              set({ slots });
+              setSlotMode(null);
+            }}
             times={profile.slotTimes}
             best={p.timing.best}
             avoid={p.timing.avoid}
           />
+          {slotsChanged && (
+            <div className="space-y-2">
+              <p className="text-sm font-medium">
+                {d.slots.length < item.slots.length ? "Fewer times a day" : "More times a day"}:
+                what about the amount?
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {p.kind === "acute"
+                  ? `${item.name} works for a few hours after each dose, so the amount per dose matters most. Usually you just ${d.slots.length < item.slots.length ? "drop that dose" : "add a dose"}.`
+                  : `${item.name} builds up over weeks, so the daily total matters most. Taking it all at once is fine.`}
+              </p>
+              <RadioCard
+                on={(slotMode ?? defaultSlotMode) === "per-dose"}
+                onClick={() => setSlotMode("per-dose")}
+                title={`Same per dose: ${perDoseLabel(item.amount)} each time`}
+                detail={`${round2(item.amount * d.slots.length)} ${item.unit} a day (was ${round2(item.amount * item.slots.length)}).`}
+              />
+              {dailyPills !== null && (
+                <RadioCard
+                  on={(slotMode ?? defaultSlotMode) === "daily"}
+                  onClick={() => setSlotMode("daily")}
+                  title={`Same daily total: ${perDoseLabel(dailyAmount!)} each time`}
+                  detail={`Still ${round2(item.amount * item.slots.length)} ${item.unit} a day.`}
+                />
+              )}
+            </div>
+          )}
           <Field label="Food — every option that's fine">
             <FoodOkPicker
               value={d.foodOk}
@@ -615,6 +669,46 @@ export function StopSheet({
         </Button>
       </div>
     </Sheet>
+  );
+}
+
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
+function RadioCard({
+  on,
+  onClick,
+  title,
+  detail,
+}: {
+  on: boolean;
+  onClick: () => void;
+  title: string;
+  detail: string;
+}) {
+  return (
+    <button
+      type="button"
+      role="radio"
+      aria-checked={on}
+      onClick={onClick}
+      className={cn(
+        "flex w-full items-start gap-3 rounded-xl border-2 px-3 py-2.5 text-left transition-colors",
+        on ? "border-primary bg-accent/60" : "border-border bg-card",
+      )}
+    >
+      <span
+        className={cn(
+          "mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full border-2",
+          on ? "border-primary" : "border-muted-foreground/40",
+        )}
+      >
+        {on && <span className="size-2.5 rounded-full bg-primary" />}
+      </span>
+      <span>
+        <span className="block text-sm font-medium">{title}</span>
+        <span className="block text-xs text-muted-foreground">{detail}</span>
+      </span>
+    </button>
   );
 }
 

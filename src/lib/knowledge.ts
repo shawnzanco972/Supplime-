@@ -1,4 +1,5 @@
 import { CATALOG_BY_ID } from "./catalog";
+import { productsFor } from "./products";
 import type { CatalogItem, FoodTiming, HabitRule, MissedMode, SlotId, StackItem } from "./types";
 
 /**
@@ -753,21 +754,70 @@ function defaultRules(item: StackItem): HabitRule[] {
  * pills (1 → 2 → 3 capsules); otherwise the guide's steps. Never past the usual daily
  * ceiling, counting every time of day you take it.
  */
+/**
+ * What one pill (capsule, softgel, scoop) holds. From the picked bottle, else the
+ * "1 capsule = 150 mg" label, else your starting dose (you almost always start on one pill).
+ */
+export function unitStrength(item: StackItem): {
+  amount: number;
+  known: boolean;
+  source: "bottle" | "label" | "guess" | "none";
+} {
+  if (item.product?.dosePerUnit) return { amount: item.product.dosePerUnit, known: true, source: "bottle" };
+  const parsed = parseServingLabel(item.servingLabel);
+  if (parsed) return { amount: parsed, known: true, source: "label" };
+  // Guess from real bottles of this supplement: the strongest pill your starting dose is
+  // a whole number of (600 mg Lion's Mane → 600 mg capsules).
+  const first = item.doseHistory?.[0]?.amount ?? item.amount;
+  const pills = Math.max(1, item.servingsPerDose || 1);
+  if (pills > 1) return { amount: item.amount / pills, known: false, source: "guess" };
+  const whole = (a: number, b: number) => Math.abs(a / b - Math.round(a / b)) < 1e-6;
+  const sizes = item.catalogId
+    ? productsFor(item.catalogId)
+        .filter((pr) => item.unit === pr.perUnit[0]?.unit || !pr.perUnit[0]?.unit)
+        .map((pr) => pr.dosePerUnit)
+        .filter((d) => d > 0 && whole(first, d) && whole(item.amount, d))
+    : [];
+  if (sizes.length) return { amount: Math.max(...sizes), known: false, source: "guess" };
+  return { amount: item.amount, known: false, source: "none" };
+}
+
+/** "1 capsule = 150 mg", "1 softgel= 3 mg", "2 caps = 1200 mg" → amount per pill. */
+export function parseServingLabel(label?: string): number | null {
+  if (!label) return null;
+  const m = label.match(/(\d+(?:\.\d+)?)\s*[a-z ]*=\s*(\d+(?:[.,]\d+)?)/i);
+  if (!m) return null;
+  const count = Number(m[1]);
+  const amount = Number(m[2]!.replace(",", "."));
+  return count > 0 && amount > 0 ? amount / count : null;
+}
+
+/** Whole pills for an amount (at least 1). */
+export function pillsFor(item: StackItem, amount = item.amount) {
+  const s = unitStrength(item).amount;
+  return Math.max(1, Math.round(amount / s));
+}
+
+/**
+ * The next dose up or down. You can only take whole pills, so a step is one pill more
+ * or less (150 mg capsules: 150 → 300, never 200), capped by the usual daily ceiling.
+ */
 export function nextStep(item: StackItem, direction: 1 | -1): number | null {
   const p = profileFor(item);
   const perDay = Math.max(1, item.slots.length);
   const fits = (amount: number) => p.maxDaily === undefined || amount * perDay <= p.maxDaily + 1e-9;
-  if (item.product) {
-    const units = Math.round(item.amount / item.product.dosePerUnit) || item.servingsPerDose;
-    const next = units + direction;
-    if (next < 1) return null;
-    const amount = round(next * item.product.dosePerUnit);
-    return direction === 1 && !fits(amount) ? null : amount;
-  }
-  const steps = p.steps;
-  if (steps.length === 0) return null;
-  if (direction === 1) return steps.find((s) => s > item.amount + 1e-9 && fits(s)) ?? null;
-  return [...steps].reverse().find((s) => s < item.amount - 1e-9) ?? null;
+  const strength = unitStrength(item);
+  const guideStep = () =>
+    direction === 1
+      ? (p.steps.find((s) => s > item.amount + 1e-9 && fits(s)) ?? null)
+      : ([...p.steps].reverse().find((s) => s < item.amount - 1e-9) ?? null);
+  if (strength.source === "none") return guideStep();
+  const units = Math.max(1, Math.round(item.amount / strength.amount));
+  const next = units + direction;
+  // Below one pill means a lower-strength bottle: fall back to the usual lower dose.
+  if (next < 1) return guideStep();
+  const amount = round(next * strength.amount);
+  return direction === 1 && !fits(amount) ? null : amount;
 }
 
 /** Pills for an amount of a product (1 decimal max). */

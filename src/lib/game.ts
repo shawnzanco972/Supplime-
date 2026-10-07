@@ -205,6 +205,22 @@ export function weekProgress(state: Pick<State, "stack" | "logs" | "profile">, t
   };
 }
 
+/**
+ * Decisions earn XP once per supplement per 2 weeks: re-tapping "keep" (or revising a
+ * change) is not a new decision.
+ */
+export function countedDecisions(decisions: Decision[]) {
+  const last = new Map<string, string>();
+  let n = 0;
+  for (const d of [...decisions].sort((a, b) => a.date.localeCompare(b.date))) {
+    const prev = last.get(d.itemId);
+    if (prev && daysBetween(prev, d.date) < 14) continue;
+    last.set(d.itemId, d.date);
+    n++;
+  }
+  return n;
+}
+
 export function totalXp(state: State, today = todayKey()) {
   let xp = 0;
   for (const log of state.logs) {
@@ -218,7 +234,7 @@ export function totalXp(state: State, today = todayKey()) {
   }
   xp += state.effects.length * XP.checkIn;
   xp += new Set(state.body.map((b) => b.date)).size * XP.bodyLog;
-  xp += state.decisions.length * XP.decision;
+  xp += countedDecisions(state.decisions) * XP.decision;
   xp += (state.checks?.length ?? 0) * XP.safety;
   xp += milestonesReached(state, today).length * XP.milestone;
   const streak = streakWithShields(state, today);

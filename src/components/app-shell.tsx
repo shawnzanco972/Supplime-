@@ -86,11 +86,21 @@ export function AppShell({
                 onClick={() => go(item.to)}
                 aria-current={active ? "page" : undefined}
                 className={cn(
-                  "flex h-14 flex-col items-center justify-center gap-1 text-[11px] font-medium",
-                  active ? "text-primary" : "text-muted-foreground",
+                  "relative flex h-16 flex-col items-center justify-center gap-1 text-[11px] transition-colors",
+                  active ? "font-semibold text-primary" : "font-medium text-muted-foreground",
                 )}
               >
-                <item.icon className="size-5" />
+                {active && (
+                  <span className="absolute top-0 h-0.5 w-10 rounded-full bg-primary" aria-hidden />
+                )}
+                <span
+                  className={cn(
+                    "flex h-8 w-14 items-center justify-center rounded-full transition-colors",
+                    active ? "bg-accent text-primary" : "active:bg-secondary",
+                  )}
+                >
+                  <item.icon className="size-5" strokeWidth={active ? 2.4 : 1.8} />
+                </span>
                 {item.label}
               </button>
             );

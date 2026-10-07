@@ -3,6 +3,7 @@ import { createJSONStorage, persist } from "zustand/middleware";
 import { CATALOG_BY_ID } from "./catalog";
 import { backfillLogs, type BackfillPattern } from "./advisor";
 import { defaultRhythm, logicalDate, slotTimesFromRhythm } from "./protocol";
+import { pillsFor, unitStrength } from "./knowledge";
 import { earnedBadges } from "./stats";
 import type {
   BadgeId,
@@ -288,13 +289,23 @@ function withBadges(state: PersistedData & { refilled?: boolean }): BadgeId[] {
 }
 
 function applyDoseChange(item: StackItem, amount: number, unit: string, date: string): StackItem {
+  // Several changes on one day are one change: the last one wins.
   const history = normalizeItem(item).doseHistory.filter((step) => step.date !== date);
   // Changing the dose on the day you started just corrects the starting dose.
-  const steps =
+  let steps =
     date <= item.startedAt
       ? [{ date: item.startedAt, amount, unit }]
       : [...history, { date, amount, unit }];
-  return { ...item, amount, unit, doseHistory: steps };
+  // Back to where you were this morning: no change at all.
+  const prev = steps.at(-2);
+  if (prev && prev.amount === amount && prev.unit === unit) steps = steps.slice(0, -1);
+  return { ...item, amount, unit, doseHistory: steps, servingsPerDose: pillCount(item, amount) };
+}
+
+/** Pills per dose for a new amount, when we know what one pill holds. */
+function pillCount(item: StackItem, amount: number) {
+  if (unitStrength(item).source === "none") return item.servingsPerDose ?? 1;
+  return pillsFor(item, amount);
 }
 
 function applyStartDate(item: StackItem, startedAt: string): StackItem {
@@ -600,16 +611,21 @@ export const useSupplime = create<SupplimeStore>()(
           const item = state.stack.find((i) => i.id === itemId);
           if (!item) return;
           const date = appToday();
+          // A second decision on the same day revises the first one (no extra XP, and the
+          // dose you started the day on stays the "from").
+          const sameDay = state.decisions.filter((d) => d.itemId === itemId && d.date === date);
           const decision: Decision = {
-            id: uid(),
+            id: sameDay[0]?.id ?? uid(),
             itemId,
             date,
             kind,
-            from: item.amount,
+            from: sameDay[0]?.from ?? item.amount,
             to: opts?.to,
-            note: opts?.note?.trim() || undefined,
+            note: opts?.note?.trim() || sameDay.find((d) => d.note)?.note,
           };
-          set({ decisions: [...state.decisions, decision] });
+          set({
+            decisions: [...state.decisions.filter((d) => !sameDay.includes(d)), decision],
+          });
           if ((kind === "step-up" || kind === "lower") && opts?.to)
             get().changeDose(itemId, opts.to);
           if (kind === "stop") get().archiveItem(itemId, opts?.verdict ?? "no-effect", opts?.note);

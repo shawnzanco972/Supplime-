@@ -218,6 +218,8 @@ export type DayContext = {
   wokeAt?: string;
   coffeeAt?: string[];
   alcoholAt?: string[];
+  /** Meals you logged today (HH:MM). */
+  mealsAt?: string[];
 };
 
 export type DecisionKind = "keep" | "step-up" | "lower" | "stop" | "more-time";

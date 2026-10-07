@@ -1,6 +1,5 @@
 import { Lock, Sparkles } from "lucide-react";
 import { useMemo, useState } from "react";
-import { Bar, BarChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { toast } from "sonner";
 import { Chip } from "@/components/fields";
 import { VERDICT_COPY } from "@/components/item-editor";
@@ -10,11 +9,12 @@ import { Button } from "@/components/ui/button";
 import { Sheet } from "@/components/ui/screen";
 import { Textarea } from "@/components/ui/textarea";
 import { advise, beforeAfter, fmtDose } from "@/lib/advisor";
+import { dayGrid, METRIC_COPY, skipImpact, type Cell } from "@/lib/insights";
 import { askGemini, askGrok, buildCoachPrompt, shareToAssistant } from "@/lib/coach";
 import { iconFor } from "@/components/product-picker";
-import { gameSummary, XP } from "@/lib/game";
-import { journeyFor, PHASE_COPY, type Journey } from "@/lib/journey";
-import { ALL_FACTS, nextStep } from "@/lib/knowledge";
+import { countedDecisions, gameSummary, XP } from "@/lib/game";
+import { doseLabel, journeyFor, PHASE_COPY, type Journey } from "@/lib/journey";
+import { ALL_FACTS, nextStep, unitStrength } from "@/lib/knowledge";
 import { useNav } from "@/lib/nav";
 import {
   BADGE_COPY,
@@ -40,12 +40,6 @@ export function JourneyView() {
     .map((item) => journeyFor({ item, logs, effects, decisions, today }))
     .sort((a, b) => Number(b.evaluateDue) - Number(a.evaluateDue));
 
-  const chart = Array.from({ length: 14 }, (_, i) => {
-    const date = addDays(today, i - 13);
-    const a = dayAdherence(stack, logs, date);
-    return { date: formatShortDate(date), taken: a.taken, scheduled: a.scheduled };
-  });
-
   return (
     <div className="mx-auto max-w-xl space-y-6">
       <header>
@@ -58,6 +52,8 @@ export function JourneyView() {
       <StreakDots days={game.lastDays} />
 
       <WhatsNext />
+
+      <DayGridCard />
 
       <section className="space-y-3">
         <div>
@@ -83,35 +79,6 @@ export function JourneyView() {
       <Findings />
 
       <FieldNotes />
-
-      <section className="rounded-2xl bg-card p-4 shadow-[var(--shadow-border)]">
-        <p className="text-sm font-medium">Last 14 days</p>
-        <div className="mt-3 h-36">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={chart} barCategoryGap={6}>
-              <XAxis
-                dataKey="date"
-                tick={{ fontSize: 10 }}
-                interval={2}
-                axisLine={false}
-                tickLine={false}
-              />
-              <YAxis hide />
-              <Tooltip
-                cursor={{ fill: "rgba(61,90,76,0.08)" }}
-                contentStyle={{
-                  background: "#fbfaf6",
-                  border: "1px solid #ddd6c8",
-                  borderRadius: 12,
-                  fontSize: 12,
-                }}
-              />
-              <Bar dataKey="scheduled" fill="#e7e2d6" radius={[4, 4, 0, 0]} name="planned" />
-              <Bar dataKey="taken" fill="#3d5a4c" radius={[4, 4, 0, 0]} name="taken" />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      </section>
 
       {past.length > 0 && (
         <section className="space-y-2">
@@ -168,6 +135,94 @@ export function JourneyView() {
   );
 }
 
+const CELL: Record<Cell, string> = {
+  taken: "bg-primary",
+  partial: "bg-primary/45",
+  missed: "bg-warn/55",
+  open: "border border-dashed border-muted-foreground/40",
+  none: "bg-transparent",
+};
+
+/** Every supplement over the last 14 days, with your sleep underneath. */
+function DayGridCard() {
+  const { stack, logs, body } = useSupplime();
+  const today = appToday();
+  const g = useMemo(() => dayGrid({ stack, logs, body, today }), [stack, logs, body, today]);
+  if (g.rows.length === 0) return null;
+  const hasSleep = g.sleep.some((h) => h !== undefined);
+  const max = Math.max(9, ...g.sleep.map((h) => h ?? 0));
+  const cols = { gridTemplateColumns: `5.5rem repeat(${g.dates.length}, minmax(0, 1fr))` };
+  return (
+    <section className="rounded-2xl bg-card p-4 shadow-[var(--shadow-border)]">
+      <div className="flex items-baseline justify-between gap-2">
+        <p className="font-medium">Last 14 days</p>
+        <p className="text-[11px] text-muted-foreground">
+          {formatShortDate(g.dates[0]!)} – today
+        </p>
+      </div>
+      <div className="mt-3 space-y-1.5" role="table" aria-label="Doses per day">
+        {g.rows.map((r) => (
+          <div key={r.item.id} className="grid items-center gap-[3px]" style={cols} role="row">
+            <span className="truncate pr-1 text-xs" role="rowheader">
+              {r.item.name}
+            </span>
+            {r.cells.map((c, i) => (
+              <span
+                key={g.dates[i]}
+                role="cell"
+                title={`${formatShortDate(g.dates[i]!)}: ${c}`}
+                className={cn("h-4 rounded-[4px]", CELL[c])}
+              />
+            ))}
+          </div>
+        ))}
+        {hasSleep && (
+          <div className="grid items-end gap-[3px] pt-1" style={cols} role="row">
+            <span className="text-xs text-muted-foreground" role="rowheader">
+              Sleep after
+            </span>
+            {g.sleep.map((h, i) => (
+              <span key={g.dates[i]} className="flex h-10 flex-col justify-end" role="cell">
+                {h !== undefined && (
+                  <span
+                    title={`${h} h the night after ${formatShortDate(g.dates[i]!)}`}
+                    className={cn("rounded-[3px]", g.poorSleep[i] ? "bg-warn/70" : "bg-accent")}
+                    style={{ height: `${Math.max(12, (h / max) * 100)}%` }}
+                  />
+                )}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+      <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+        <Legend className="bg-primary" label="taken" />
+        <Legend className="bg-primary/45" label="part" />
+        <Legend className="bg-warn/55" label="missed" />
+        {hasSleep && <Legend className="bg-warn/70" label="rough night" />}
+      </div>
+      {g.note ? (
+        <p className="mt-2 text-sm">{g.note}</p>
+      ) : (
+        !hasSleep && (
+          <p className="mt-2 text-xs text-muted-foreground">
+            Connect Fitbit / Google Health on the Body tab to see your sleep under each day and
+            spot nights that follow a missed dose.
+          </p>
+        )
+      )}
+    </section>
+  );
+}
+
+function Legend({ className, label }: { className: string; label: string }) {
+  return (
+    <span className="inline-flex items-center gap-1">
+      <span className={cn("size-2.5 rounded-[3px]", className)} /> {label}
+    </span>
+  );
+}
+
 function StreakDots({ days }: { days: { date: string; outcome: string }[] }) {
   if (days.length === 0) return null;
   return (
@@ -206,7 +261,9 @@ export function JourneyCard({
   onOpen: () => void;
 }) {
   const body = useSupplime((s) => s.body);
+  const logs = useSupplime((s) => s.logs);
   const deltas = beforeAfter(j.item, body, appToday());
+  const impact = skipImpact(j.item, logs, body, appToday());
   const phase = PHASE_COPY[j.phase];
   const span = Math.max(...j.milestones.map((m) => m.day), j.day, j.felt?.day ?? 0) * 1.05;
   const pct = (d: number) => `${Math.min(100, (d / span) * 100)}%`;
@@ -220,7 +277,8 @@ export function JourneyCard({
             <p className="text-xs text-muted-foreground">
               Day {j.day} · {j.takenDays} taken
               {j.consistency !== null ? ` (${Math.round(j.consistency * 100)}%)` : ""} · {j.atDose}d
-              at {j.item.amount} {j.item.unit}
+              at {doseLabel(j.item, j.item.amount)}
+              {j.item.slots.length > 1 ? ` ×${j.item.slots.length}/day` : ""}
             </p>
           </div>
           <span
@@ -300,7 +358,31 @@ export function JourneyCard({
             · {formatShortDate(j.next.date)}
           </p>
         )}
-        {!j.doseReviewOpen && (
+        {j.missedDays > 0 && p.kind !== "acute" && !j.felt && (
+          <p className="mt-1 text-xs text-muted-foreground">
+            {j.missedDays} missed day{j.missedDays === 1 ? "" : "s"} at this dose: expect it about{" "}
+            {j.missedDays} day{j.missedDays === 1 ? "" : "s"} later than usual. It builds up with
+            the days you actually take it.
+          </p>
+        )}
+        {impact.length > 0 && (
+          <div className="mt-2 space-y-1">
+            {impact.map((x) => (
+              <p
+                key={x.metric}
+                className={cn(
+                  "rounded-lg px-2 py-1 text-xs",
+                  x.helps ? "bg-accent text-accent-foreground" : "bg-secondary text-muted-foreground",
+                )}
+              >
+                {METRIC_COPY[x.metric].label} after days you took it: {x.taken}
+                {METRIC_COPY[x.metric].unit} vs {x.missed}
+                {METRIC_COPY[x.metric].unit} after the {x.missedNights} days you missed it.
+              </p>
+            ))}
+          </div>
+        )}
+        {!j.doseReviewOpen && !j.changedToday && (
           <p className="mt-1 inline-flex items-center gap-1 text-xs text-muted-foreground">
             <Lock className="size-3" /> Dose change unlocks {formatShortDate(j.doseReviewDate)} (
             {p.minDaysBeforeIncrease} days at one dose)
@@ -371,37 +453,67 @@ export function EvaluateSheet({ itemId }: { itemId: string }) {
   const pick = choice ?? j.recommendation.kind;
   const lastNote = [...j.decisions].reverse().find((d) => d.note);
 
+  const perDay = Math.max(1, item.slots.length);
+  const locked = !j.doseReviewOpen && !j.changedToday;
+  const guessed = !unitStrength(item).known;
+  const perDayNote = (amount: number) =>
+    perDay > 1 ? ` · ${perDay}× a day = ${round(amount * perDay)} ${item.unit}/day` : "";
   const options: { kind: DecisionKind; label: string; detail: string; disabled?: boolean }[] = [
-    { kind: "keep", label: `Keep ${item.amount} ${item.unit}`, detail: "It's doing its job." },
+    {
+      kind: "keep",
+      label: `Keep ${doseLabel(item, item.amount)}`,
+      detail: `It's doing its job${perDayNote(item.amount)}.`,
+    },
     {
       kind: "step-up",
-      label: up ? `Step up to ${up} ${item.unit}` : "Step up",
-      detail: !j.doseReviewOpen
+      label: up ? `Step up to ${doseLabel(item, up)}` : "Step up",
+      detail: locked
         ? `Locked until ${formatShortDate(j.doseReviewDate)}`
         : up
-          ? "New step; the clock restarts."
+          ? `One more pill per dose${perDayNote(up)}. The clock restarts.`
           : "Already at the usual top dose.",
-      disabled: !up || !j.doseReviewOpen,
+      disabled: !up || locked,
     },
     {
       kind: "lower",
-      label: down ? `Lower to ${down} ${item.unit}` : "Lower",
+      label: down ? `Lower to ${doseLabel(item, down)}` : "Lower",
       detail: down
-        ? "Less can be more, especially with side effects."
+        ? `Less can be more, especially with side effects${perDayNote(down)}.`
         : "Already at the lowest usual dose.",
       disabled: !down,
     },
     { kind: "more-time", label: "Give it 2 more weeks", detail: "Not enough to judge yet." },
     { kind: "stop", label: "Stop", detail: "Keep the record as a finished experiment." },
   ];
+  const earnsXp =
+    countedDecisions([...decisions, { id: "new", itemId: item.id, date: today, kind: pick }]) >
+    countedDecisions(decisions.filter((d) => !(d.itemId === item.id && d.date === today)));
 
   return (
     <Sheet
       onClose={close}
       title={`${item.name}: verdict`}
-      description={`Day ${j.day} · ${j.atDose} days at ${item.amount} ${item.unit}`}
+      description={`Day ${j.day} · ${j.atDose} day${j.atDose === 1 ? "" : "s"} at ${doseLabel(item, item.amount)}${perDayNote(item.amount)}`}
     >
       <div className="space-y-4">
+        {j.changedToday && j.previousStep && (
+          <p className="rounded-xl bg-accent px-3 py-2 text-sm text-accent-foreground">
+            You changed this today (was {j.previousStep.amount} {j.previousStep.unit}). Revising it
+            today is free: it stays one change, with no waiting period and no extra XP.
+          </p>
+        )}
+        {j.holding && j.lastDecision && !j.changedToday && (
+          <p className="rounded-xl bg-accent px-3 py-2 text-sm text-accent-foreground">
+            You already decided on {formatShortDate(j.lastDecision.date)}. Next check{" "}
+            {formatShortDate(j.nextEval)}. You can change your mind, but it won't earn XP again.
+          </p>
+        )}
+        {guessed && (up || down) && (
+          <p className="text-xs text-muted-foreground">
+            Steps assume {round(unitStrength(item).amount)} {item.unit} per pill. Pick your exact
+            bottle in the editor to be sure.
+          </p>
+        )}
         <div className="grid grid-cols-3 gap-2 text-center">
           <Stat value={`${j.day}`} label="days on it" />
           <Stat
@@ -484,12 +596,12 @@ export function EvaluateSheet({ itemId }: { itemId: string }) {
               note,
               verdict,
             });
-            toast(`Decision logged: +${XP.decision} XP`, {
+            toast(earnsXp ? `Decision logged: +${XP.decision} XP` : "Decision updated", {
               description:
                 pick === "step-up"
-                  ? `${up} ${item.unit} from today.`
+                  ? `${doseLabel(item, up!)} from today.`
                   : pick === "lower"
-                    ? `${down} ${item.unit} from today.`
+                    ? `${doseLabel(item, down!)} from today.`
                     : pick === "stop"
                       ? "Moved to past experiments."
                       : pick === "keep"
@@ -505,6 +617,8 @@ export function EvaluateSheet({ itemId }: { itemId: string }) {
     </Sheet>
   );
 }
+
+const round = (n: number) => Math.round(n * 100) / 100;
 
 function Stat({ value, label }: { value: string; label: string }) {
   return (

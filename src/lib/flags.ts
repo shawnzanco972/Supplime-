@@ -14,7 +14,7 @@ const SLOT_LABEL = Object.fromEntries(SLOTS.map((s) => [s.id, s.label.toLowerCas
   SlotId,
   string
 >;
-import { formatClock } from "./utils";
+import { formatClock, formatHHMM } from "./utils";
 
 export type Flag = {
   tone: "warn" | "good" | "info";
@@ -72,7 +72,19 @@ export function doseFlags(input: {
           flags.push({ tone: "info", icon: "food", text: rule.text });
         }
         break;
-      case "empty-stomach":
+      case "empty-stomach": {
+        const ate = (day?.mealsAt ?? [])
+          .map((m) => dayMinutes(m, wake))
+          .filter((m) => m <= at && at - m < 120)
+          .pop();
+        if (!mealSlot && ate !== undefined) {
+          flags.push({
+            tone: "warn",
+            icon: "food",
+            text: `You ate at ${formatClock(formatHHMM(ate))}. Best ~2 h after a meal: from ${formatClock(formatHHMM(ate + 120))}.`,
+          });
+          break;
+        }
         flags.push(
           mealSlot
             ? {
@@ -83,6 +95,7 @@ export function doseFlags(input: {
             : { tone: "info", icon: "food", text: rule.text },
         );
         break;
+      }
       case "stimulating":
         if (at > bed - 8 * 60) {
           flags.push({
