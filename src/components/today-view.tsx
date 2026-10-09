@@ -1,5 +1,5 @@
-import { AlarmClock, Check, Flag, Sparkles, Undo2 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { AlarmClock, Check, Coffee, Flag, Sparkles, Undo2, Utensils, Wine } from "lucide-react";
+import { Fragment, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { DoseDayCards, TodaySummary } from "@/components/today-summary";
 import { EffectCheckIn, SafetyCheck } from "@/components/effect-check-in";
@@ -46,6 +46,25 @@ export function TodayView({ now }: { now: number }) {
   const remaining = remainingKeys(stack, logs, date);
   const todayLogs = logs.filter((l) => l.date === date);
   const deferred = todayLogs.filter((l) => l.status === "deferred");
+  const wakeM = profile.rhythm.wake;
+  const events = (
+    [
+      ["coffee", day?.coffeeAt],
+      ["meal", day?.mealsAt],
+      ["drink", day?.alcoholAt],
+    ] as const
+  )
+    .flatMap(([kind, list]) => (list ?? []).map((at) => ({ kind, at, m: dayMinutes(at, wakeM) })))
+    .sort((a, b) => a.m - b.m);
+  // Where each window sits on today's line: when you actually took it, else its planned time.
+  const anchors: number[] = [];
+  for (const plan of plans) {
+    const taken = todayLogs
+      .filter((l) => l.slot === plan.slot.id && l.status === "taken" && !l.edited)
+      .map((l) => clockOf(l.at, wakeM));
+    const m = taken.length ? Math.min(...taken) : plan.minutes;
+    anchors.push(Math.max(m, anchors.at(-1) ?? -Infinity));
+  }
   const game = useMemo(() => gameSummary(state, date), [state, date]);
   const nxt = nextSlot(plans, remaining, nowMin);
   const low = stack.filter((item) => !item.paused && !item.archived && isLowStock(item));
@@ -108,7 +127,9 @@ export function TodayView({ now }: { now: number }) {
           source: wakeSource,
           onSet: (at, source) => {
             state.setDay(date, { wokeAt: at, wakeSource: source });
-            const delta = dayMinutes(at, profile.rhythm.wake) - dayMinutes(profile.slotTimes.wake, profile.rhythm.wake);
+            const delta =
+              dayMinutes(at, profile.rhythm.wake) -
+              dayMinutes(profile.slotTimes.wake, profile.rhythm.wake);
             toast(`Up at ${formatClock(at)}`, {
               description:
                 Math.abs(delta) < 15
@@ -170,7 +191,12 @@ export function TodayView({ now }: { now: number }) {
       )}
 
       <div className="space-y-5">
-        {plans.map((plan) => {
+        {plans.map((plan, pi) => {
+          // Coffee, meals and drinks you logged, placed by time between the windows.
+          const anchor = (i: number) => anchors[i] ?? Infinity;
+          const before = events.filter(
+            (e) => e.m < anchor(pi) && (pi === 0 || e.m >= anchor(pi - 1)),
+          );
           const openDoses = plan.waves
             .flatMap((w) => w.doses)
             .filter(
@@ -179,94 +205,104 @@ export function TodayView({ now }: { now: number }) {
                 !deferred.some((l) => l.itemId === d.item.id && l.slot === d.slot),
             );
           return (
-            <section key={plan.slot.id}>
-              <div className="mb-2 flex items-center justify-between gap-3">
-                <div className="flex items-baseline gap-2">
-                  <h3 className="font-display text-lg tracking-tight">{plan.slot.label}</h3>
-                  <p className="text-xs tabular-nums text-muted-foreground">
-                    {formatClock(plan.time)}
-                  </p>
-                </div>
-                {openDoses.length > 1 && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => takeAll(openDoses, plan.slot.id)}
-                  >
-                    <Check /> Take all {openDoses.length}
-                  </Button>
-                )}
-              </div>
-              <div className="space-y-3">
-                {plan.waves.map((wave) => (
-                  <div
-                    key={wave.key}
-                    className="rounded-2xl bg-card p-2 shadow-[var(--shadow-border)]"
-                  >
-                    <div className="px-3 pt-2 pb-1">
-                      <p className="text-xs font-medium tracking-wide text-primary uppercase">
-                        {wave.title}
-                      </p>
-                    </div>
-                    <div className="mt-1 space-y-1">
-                      {wave.doses.map((dose) => (
-                        <DoseRow
-                          key={doseKey(dose)}
-                          dose={dose}
-                          log={todayLogs.find(
-                            (l) => l.itemId === dose.item.id && l.slot === dose.slot,
-                          )}
-                          flags={doseFlags({
-                            item: dose.item,
-                            slot: dose.slot,
-                            times,
-                            profile,
-                            stack,
-                            day,
-                          })}
-                          late={nowMin > plan.minutes + 120}
-                          onTake={(late) => {
-                            state.logDose(
-                              dose.item.id,
-                              dose.slot,
-                              "taken",
-                              date,
-                              late ? { late: true } : undefined,
-                            );
-                            const h = dose.item.doseHistory;
-                            const first = h.length > 1 && h.at(-1)!.date === date;
-                            toast(`+${late ? XP.lateDose : XP.dose} XP`, {
-                              description: first
-                                ? `First dose at ${doseLabel(dose.item, dose.item.amount)}. New step, day 1.`
-                                : `${dose.item.name} logged.`,
-                            });
-                          }}
-                          onNotNow={() =>
-                            open({ kind: "not-now", itemId: dose.item.id, slot: dose.slot, date })
-                          }
-                          onSkip={() => {
-                            state.logDose(dose.item.id, dose.slot, "skipped", date, {
-                              reason: "chose",
-                            });
-                            toast(`${dose.item.name} skipped today`, {
-                              description: "Logged honestly: +2 XP.",
-                              action: {
-                                label: "Undo",
-                                onClick: () => state.undoDose(dose.item.id, dose.slot, date),
-                              },
-                            });
-                          }}
-                          onUndo={() => state.undoDose(dose.item.id, dose.slot, date)}
-                          onOpen={() => open({ kind: "editor", itemId: dose.item.id })}
-                        />
-                      ))}
-                    </div>
+            <Fragment key={plan.slot.id}>
+              {before.map((e) => (
+                <EventRow key={`${e.kind}-${e.at}`} kind={e.kind} at={e.at} />
+              ))}
+              <section>
+                <div className="mb-2 flex items-center justify-between gap-3">
+                  <div className="flex items-baseline gap-2">
+                    <h3 className="font-display text-lg tracking-tight">{plan.slot.label}</h3>
+                    <p className="text-xs tabular-nums text-muted-foreground">
+                      {formatClock(plan.time)}
+                    </p>
                   </div>
-                ))}
-              </div>
-            </section>
+                  {openDoses.length > 1 && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => takeAll(openDoses, plan.slot.id)}
+                    >
+                      <Check /> Take all {openDoses.length}
+                    </Button>
+                  )}
+                </div>
+                <div className="space-y-3">
+                  {plan.waves.map((wave) => (
+                    <div
+                      key={wave.key}
+                      className="rounded-2xl bg-card p-2 shadow-[var(--shadow-border)]"
+                    >
+                      <div className="px-3 pt-2 pb-1">
+                        <p className="text-xs font-medium tracking-wide text-primary uppercase">
+                          {wave.title}
+                        </p>
+                      </div>
+                      <div className="mt-1 space-y-1">
+                        {wave.doses.map((dose) => (
+                          <DoseRow
+                            key={doseKey(dose)}
+                            dose={dose}
+                            log={todayLogs.find(
+                              (l) => l.itemId === dose.item.id && l.slot === dose.slot,
+                            )}
+                            flags={doseFlags({
+                              item: dose.item,
+                              slot: dose.slot,
+                              times,
+                              profile,
+                              stack,
+                              day,
+                            })}
+                            late={nowMin > plan.minutes + 120}
+                            onTake={(late) => {
+                              state.logDose(
+                                dose.item.id,
+                                dose.slot,
+                                "taken",
+                                date,
+                                late ? { late: true } : undefined,
+                              );
+                              const h = dose.item.doseHistory;
+                              const first = h.length > 1 && h.at(-1)!.date === date;
+                              toast(`+${late ? XP.lateDose : XP.dose} XP`, {
+                                description: first
+                                  ? `First dose at ${doseLabel(dose.item, dose.item.amount)}. New step, day 1.`
+                                  : `${dose.item.name} logged.`,
+                              });
+                            }}
+                            onNotNow={() =>
+                              open({ kind: "not-now", itemId: dose.item.id, slot: dose.slot, date })
+                            }
+                            onSkip={() => {
+                              state.logDose(dose.item.id, dose.slot, "skipped", date, {
+                                reason: "chose",
+                              });
+                              toast(`${dose.item.name} skipped today`, {
+                                description: "Logged honestly: +2 XP.",
+                                action: {
+                                  label: "Undo",
+                                  onClick: () => state.undoDose(dose.item.id, dose.slot, date),
+                                },
+                              });
+                            }}
+                            onUndo={() => state.undoDose(dose.item.id, dose.slot, date)}
+                            onOpen={() => open({ kind: "editor", itemId: dose.item.id })}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            </Fragment>
           );
         })}
+        {events
+          .filter((e) => e.m >= (anchors.at(-1) ?? -Infinity))
+          .map((e) => (
+            <EventRow key={`${e.kind}-${e.at}`} kind={e.kind} at={e.at} />
+          ))}
       </div>
 
       {milestonesToday.length > 0 && (
@@ -322,6 +358,37 @@ export function TodayView({ now }: { now: number }) {
     else if (a.kind === "safety")
       document.getElementById("safety")?.scrollIntoView({ behavior: "smooth" });
   }
+}
+
+const timeOf = (iso: string) => {
+  const d = new Date(iso);
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+};
+
+/** Minutes into your day for an ISO timestamp. */
+function clockOf(iso: string, wake: string) {
+  return dayMinutes(timeOf(iso), wake);
+}
+
+const EVENT = {
+  coffee: { icon: Coffee, label: "Coffee" },
+  meal: { icon: Utensils, label: "Meal" },
+  drink: { icon: Wine, label: "Drink" },
+} as const;
+
+/** A coffee, meal or drink on today's line, between the windows. */
+function EventRow({ kind, at }: { kind: keyof typeof EVENT; at: string }) {
+  const { icon: Icon, label } = EVENT[kind];
+  return (
+    <div className="flex items-center gap-2 px-1 text-xs text-muted-foreground">
+      <span className="h-px flex-1 border-t border-dashed border-border" />
+      <span className="inline-flex items-center gap-1.5 rounded-full bg-secondary px-2.5 py-1">
+        <Icon className="size-3.5" />
+        {label} · {formatClock(at)}
+      </span>
+      <span className="h-px flex-1 border-t border-dashed border-border" />
+    </div>
+  );
 }
 
 function fmtDelta(m: number) {
@@ -539,6 +606,9 @@ function DoseRow({
             >
               {status === "taken" && <Check className="size-4" />}
               {status === "taken" ? (log?.late ? "Taken late" : "Taken") : "Skipped"}
+              {status === "taken" && log && !log.edited && !log.backfill
+                ? ` ${formatClock(timeOf(log.at))}`
+                : ""}
             </span>
             <button
               type="button"
