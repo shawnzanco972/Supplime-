@@ -76,7 +76,7 @@ export function Section({
   return (
     <section className="space-y-4 rounded-2xl bg-card p-4 shadow-[var(--shadow-border)]">
       <div>
-        <h3 className="font-display text-lg tracking-tight">{title}</h3>
+        <h3 className="font-sans text-base font-semibold">{title}</h3>
         {hint && <p className="mt-0.5 text-sm text-muted-foreground">{hint}</p>}
       </div>
       {children}
@@ -690,7 +690,7 @@ export function Stepper({
         −
       </button>
       <span className="min-w-24 text-center">
-        <span className="block font-display text-2xl tabular-nums">{value}</span>
+        <span className="block text-2xl font-semibold tabular-nums">{value}</span>
         <span className="block text-xs text-muted-foreground">{label}</span>
       </span>
       <button

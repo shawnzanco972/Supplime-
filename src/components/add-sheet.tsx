@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { ItemSetupForm, type SetupSeed } from "@/components/item-setup";
 import { BrandBadge, ProductPicker } from "@/components/product-picker";
@@ -6,9 +6,10 @@ import { Button } from "@/components/ui/button";
 import { Screen } from "@/components/ui/screen";
 import { Textarea } from "@/components/ui/textarea";
 import { CATALOG_BY_ID } from "@/lib/catalog";
-import { parseProduct } from "@/lib/iherb";
+import { isShortLink, parseProduct, resolveShortLink } from "@/lib/iherb";
 import { useNav } from "@/lib/nav";
-import { contentsLabel, matchProduct } from "@/lib/products";
+import { contentsLabel, matchProduct, type Product } from "@/lib/products";
+import { SwitchBottle } from "@/components/switch-bottle";
 import { appToday, useSupplime } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
@@ -22,7 +23,19 @@ export function AddScreen({ text }: { text?: string }) {
   const addItem = useSupplime((s) => s.addItem);
   const [mode, setMode] = useState<Mode>(text ? "iherb" : "browse");
   const [seed, setSeed] = useState<SetupSeed | null>(null);
+  const [switching, setSwitching] = useState<{ itemId: string; product: Product } | null>(null);
   const today = appToday();
+
+  if (switching) {
+    return (
+      <SwitchBottle
+        itemId={switching.itemId}
+        product={switching.product}
+        onBack={() => setSwitching(null)}
+        onDone={close}
+      />
+    );
+  }
 
   if (seed) {
     return (
@@ -41,11 +54,16 @@ export function AddScreen({ text }: { text?: string }) {
             if (!id) return toast.error("Give it a name first.");
             const added = useSupplime.getState().stack.find((i) => i.id === id);
             toast(`Added ${added?.name ?? "it"}`, {
-              description: item.planned
-                ? "In your cabinet. Supplime will tell you when it's a good time to start."
-                : item.backfill
-                  ? "History rebuilt from your start date."
-                  : "Day 1 starts now.",
+              description:
+                item.stage === "ordered"
+                  ? "On the way. Tap “It arrived” in Cabinet when it does."
+                  : item.stage === "interested"
+                    ? "Saved under Interested in Cabinet."
+                    : item.planned
+                      ? "In your cabinet. Supplime will tell you when it's a good time to start."
+                      : item.backfill
+                        ? "History rebuilt from your start date."
+                        : "Day 1 starts now.",
             });
             close();
           }}
@@ -78,8 +96,15 @@ export function AddScreen({ text }: { text?: string }) {
       </div>
       {mode === "browse" ? (
         <ProductPicker
-          exclude={stack.filter((i) => !i.archived && i.catalogId).map((i) => i.catalogId!)}
-          onPick={(p) => setSeed(p.custom ? {} : p)}
+          owned={stack}
+          onPick={(p) =>
+            p.switchFor && p.product
+              ? setSwitching({ itemId: p.switchFor, product: p.product })
+              : p.switchFor
+                ? // A brand Supplime doesn't know: change the strength in the editor.
+                  useNav.getState().open({ kind: "editor", itemId: p.switchFor })
+                : setSeed(p.custom ? {} : p)
+          }
         />
       ) : (
         <IherbPaste initial={text} onPick={setSeed} />
@@ -90,7 +115,25 @@ export function AddScreen({ text }: { text?: string }) {
 
 function IherbPaste({ initial, onPick }: { initial?: string; onPick: (s: SetupSeed) => void }) {
   const [text, setText] = useState(initial ?? "");
-  const parsed = useMemo(() => parseProduct(text), [text]);
+  // Short share links (iherb.co/…) don't name the product: follow them to the product page.
+  const [resolved, setResolved] = useState<{ from: string; text: string | null } | null>(null);
+  const short = isShortLink(text) && !parseProduct(text)?.brand;
+  const looking = short && resolved?.from !== text;
+  useEffect(() => {
+    if (!short) return;
+    let live = true;
+    void resolveShortLink(text).then((r) => live && setResolved({ from: text, text: r }));
+    return () => {
+      live = false;
+    };
+  }, [short, text]);
+  const source =
+    short && resolved?.from === text && resolved.text ? `${resolved.text} ${text}` : text;
+  const parsed = useMemo(() => {
+    const p = parseProduct(source);
+    // A short link alone isn't a product.
+    return p && (p.brand || p.catalogId || p.iherbId || p.amount) ? p : null;
+  }, [source]);
   const product = parsed
     ? matchProduct({
         iherbId: parsed.iherbId,
@@ -116,9 +159,12 @@ function IherbPaste({ initial, onPick }: { initial?: string; onPick: (s: SetupSe
         placeholder="https://www.iherb.com/pr/…  or  NOW Foods, Melatonin, 3 mg, 60 Veg Capsules"
         className="min-h-28"
       />
-      {text.trim() && !parsed && (
+      {looking && <p className="text-sm text-muted-foreground">Looking up the product…</p>}
+      {text.trim() && !parsed && !looking && (
         <p className="text-sm text-warn">
-          Couldn't read a product from that. Try the full link or title.
+          {short
+            ? "Couldn't open that iHerb link. Use Share → Supplime from the iHerb app (it sends the product name too), or type the product name."
+            : "Couldn't read a product from that. Try the full link or title."}
         </p>
       )}
       {parsed && (

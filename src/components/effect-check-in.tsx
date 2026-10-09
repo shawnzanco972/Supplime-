@@ -91,9 +91,7 @@ export function SafetyCheck({ item, onDone }: { item: StackItem; onDone?: () => 
   const [picked, setPicked] = useState<string[]>([]);
   return (
     <div className="rounded-2xl bg-card p-4 shadow-[var(--shadow-border)]">
-      <p className="text-xs font-medium tracking-[0.16em] text-muted-foreground uppercase">
-        Quick safety check
-      </p>
+      <p className="text-xs font-medium text-muted-foreground">Quick safety check</p>
       <p className="mt-1 font-medium">{item.name}: any of these lately?</p>
       <div className="mt-3 flex flex-wrap gap-2">
         {watch.map((w) => {

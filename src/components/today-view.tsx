@@ -111,7 +111,7 @@ export function TodayView({ now }: { now: number }) {
           {profile.displayName ? `, ${profile.displayName}` : ""}
         </p>
         <h1 className="mt-0.5 font-display text-3xl tracking-tight">Today</h1>
-        {profile.why && <p className="mt-1 text-sm text-primary italic">“{profile.why}”</p>}
+        {profile.why && <p className="mt-1 text-sm text-primary">“{profile.why}”</p>}
       </header>
 
       <TodaySummary
@@ -152,9 +152,7 @@ export function TodayView({ now }: { now: number }) {
       ) : nxt ? (
         <section className="rounded-2xl bg-primary p-5 text-primary-foreground">
           <div className="flex items-center justify-between gap-3">
-            <p className="text-xs font-medium tracking-[0.16em] uppercase opacity-80">
-              Next window
-            </p>
+            <p className="text-xs font-medium opacity-80">Next window</p>
             <span className="inline-flex items-center gap-1 text-sm tabular-nums opacity-90">
               <AlarmClock className="size-3.5" />
               {untilLabel(nxt.minutes - nowMin)}
@@ -212,7 +210,7 @@ export function TodayView({ now }: { now: number }) {
               <section>
                 <div className="mb-2 flex items-center justify-between gap-3">
                   <div className="flex items-baseline gap-2">
-                    <h3 className="font-display text-lg tracking-tight">{plan.slot.label}</h3>
+                    <h3 className="font-sans text-base font-semibold">{plan.slot.label}</h3>
                     <p className="text-xs tabular-nums text-muted-foreground">
                       {formatClock(plan.time)}
                     </p>
@@ -234,9 +232,7 @@ export function TodayView({ now }: { now: number }) {
                       className="rounded-2xl bg-card p-2 shadow-[var(--shadow-border)]"
                     >
                       <div className="px-3 pt-2 pb-1">
-                        <p className="text-xs font-medium tracking-wide text-primary uppercase">
-                          {wave.title}
-                        </p>
+                        <p className="text-xs font-medium text-primary">{wave.title}</p>
                       </div>
                       <div className="mt-1 space-y-1">
                         {wave.doses.map((dose) => (
@@ -407,9 +403,7 @@ function untilLabel(delta: number) {
 function Quests({ quests, onAction }: { quests: Quest[]; onAction: (q: Quest) => void }) {
   return (
     <section className="rounded-2xl bg-card p-4 shadow-[var(--shadow-border)]">
-      <p className="text-xs font-medium tracking-[0.16em] text-muted-foreground uppercase">
-        Today's three
-      </p>
+      <p className="text-xs font-medium text-muted-foreground">Today's three</p>
       <ul className="mt-2 space-y-1">
         {quests.map((q) => (
           <li key={q.id}>
@@ -483,7 +477,7 @@ function DayComplete({ date }: { date: string }) {
         </button>
       ) : ins.unlocked || justRevealed ? (
         <div className="rounded-xl bg-primary-foreground/12 px-4 py-3 text-sm animate-in fade-in-0 zoom-in-95">
-          <p className="text-xs tracking-wide uppercase opacity-75">
+          <p className="text-xs opacity-75">
             Field note {ins.collected}/{ins.total}
           </p>
           <p className="mt-1">{ins.fact.text}</p>
@@ -561,7 +555,7 @@ function DoseRow({
           <p className="truncate font-medium">
             {dose.item.name}
             {newDose && (
-              <span className="ml-2 inline-flex items-center gap-0.5 rounded-full bg-primary px-2 py-0.5 align-middle text-[10px] font-semibold text-primary-foreground uppercase">
+              <span className="ml-2 inline-flex items-center gap-0.5 rounded-full bg-primary px-2 py-0.5 align-middle text-[10px] font-semibold text-primary-foreground">
                 <Sparkles className="size-3" /> New dose
               </span>
             )}

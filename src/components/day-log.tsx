@@ -4,6 +4,8 @@ import { toast } from "sonner";
 import { TimeInput } from "@/components/fields";
 import { Button } from "@/components/ui/button";
 import { Sheet } from "@/components/ui/screen";
+import { coffeeTips } from "@/lib/flags";
+import { effectiveSlotTimes } from "@/lib/protocol";
 import { useSupplime } from "@/lib/store";
 import type { DayContext } from "@/lib/types";
 import { cn, formatClock, formatHHMM } from "@/lib/utils";
@@ -21,22 +23,18 @@ const META: Record<Kind, { label: string; icon: typeof Coffee; done: string }> =
     done: "Supplime spaces anything that clashes with caffeine.",
   },
   meal: { label: "Meal", icon: Utensils, done: "Food-sensitive doses now follow your real meal." },
-  drink: { label: "Drink", icon: Wine, done: "Anything that clashes with alcohol tonight is flagged." },
+  drink: {
+    label: "Drink",
+    icon: Wine,
+    done: "Anything that clashes with alcohol tonight is flagged.",
+  },
 };
 
 /**
  * Today's timeline of coffee, meals and drinks. Pick what, pick when (defaults to now),
  * confirm. Each entry is a chip you can remove.
  */
-export function DayLog({
-  date,
-  day,
-  nowMin,
-}: {
-  date: string;
-  day?: DayContext;
-  nowMin: number;
-}) {
+export function DayLog({ date, day, nowMin }: { date: string; day?: DayContext; nowMin: number }) {
   const setDay = useSupplime((s) => s.setDay);
   const [adding, setAdding] = useState<Kind | null>(null);
   const entries = (Object.keys(FIELD) as Kind[])
@@ -106,9 +104,27 @@ export function DayLog({
               toast(`${META[adding].label} at ${formatClock(at)} is already logged`);
             } else {
               setDay(date, { [FIELD[adding]]: [...list, at].sort() });
-              toast(`${META[adding].label} at ${formatClock(at)} added`, {
-                description: META[adding].done,
-              });
+              const tips = adding === "coffee" ? coffeeTipsNow(date, at) : [];
+              if (tips.length === 0)
+                toast(`${META[adding].label} at ${formatClock(at)} added`, {
+                  description: META[adding].done,
+                });
+              for (const t of tips) {
+                toast(t.kind === "take-now" ? "Coffee logged: good moment" : "Coffee logged", {
+                  description: t.text,
+                  duration: 12000,
+                  action:
+                    t.kind === "take-now"
+                      ? {
+                          label: `Take ${t.item.name}`,
+                          onClick: () => {
+                            useSupplime.getState().logDose(t.item.id, t.slot, "taken", date);
+                            toast(`${t.item.name} taken with your coffee`);
+                          },
+                        }
+                      : undefined,
+                });
+              }
             }
             setAdding(null);
           }}
@@ -143,7 +159,11 @@ function AddEntry({
       <div className="space-y-4">
         <div className="grid grid-cols-2 gap-2">
           {presets.map((p) => (
-            <Pick key={p.label} on={at === formatHHMM(p.min)} onClick={() => setAt(formatHHMM(p.min))}>
+            <Pick
+              key={p.label}
+              on={at === formatHHMM(p.min)}
+              onClick={() => setAt(formatHHMM(p.min))}
+            >
               <span className="block font-medium">{p.label}</span>
               <span className="block text-xs opacity-75">{formatClock(formatHHMM(p.min))}</span>
             </Pick>
@@ -161,7 +181,15 @@ function AddEntry({
   );
 }
 
-function Pick({ on, onClick, children }: { on: boolean; onClick: () => void; children: ReactNode }) {
+function Pick({
+  on,
+  onClick,
+  children,
+}: {
+  on: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}) {
   return (
     <button
       type="button"
@@ -175,6 +203,19 @@ function Pick({ on, onClick, children }: { on: boolean; onClick: () => void; chi
       {children}
     </button>
   );
+}
+
+function coffeeTipsNow(date: string, cup: string) {
+  const { stack, logs, profile, days } = useSupplime.getState();
+  const { times } = effectiveSlotTimes(profile, days, date);
+  return coffeeTips({
+    stack: stack.filter((i) => i.startedAt <= date),
+    logs,
+    profile,
+    times,
+    date,
+    cup,
+  });
 }
 
 /** Times after midnight (but before ~5 am) sort at the end of the day. */

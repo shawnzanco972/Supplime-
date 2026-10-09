@@ -1,4 +1,5 @@
-import { usesFor } from "@/lib/advisor";
+import { fitCheck, slotNames, usesFor } from "@/lib/advisor";
+import { appToday, useSupplime } from "@/lib/store";
 import {
   Activity,
   Atom,
@@ -81,7 +82,13 @@ const POPULAR = [
   "probiotic",
 ];
 
-export type Picked = { catalogId?: string; product?: Product; custom?: boolean };
+export type Picked = {
+  catalogId?: string;
+  product?: Product;
+  custom?: boolean;
+  /** You picked a new bottle for something you already have. */
+  switchFor?: string;
+};
 
 /**
  * Pick a supplement the way you'd find it on a shelf: the type first, then the brand,
@@ -89,14 +96,23 @@ export type Picked = { catalogId?: string; product?: Product; custom?: boolean }
  */
 export function ProductPicker({
   onPick,
-  exclude = [],
+  owned = [],
+  exclude: blocked = [],
 }: {
   onPick: (p: Picked) => void;
+  /** What's already in your cabinet. */
+  owned?: StackItem[];
+  /** Types you can't pick again (e.g. already chosen during onboarding). */
   exclude?: string[];
 }) {
   const [query, setQuery] = useState("");
   const [type, setType] = useState<CatalogItem | null>(null);
+  // Read about it first, then choose a bottle.
+  const [reading, setReading] = useState(true);
   const [brand, setBrand] = useState<string | null>(null);
+  const [switchFor, setSwitchFor] = useState<string | undefined>(undefined);
+  const exclude = owned.filter((i) => !i.archived && i.catalogId).map((i) => i.catalogId!);
+  const pick = (p: Picked) => onPick({ ...p, switchFor });
 
   const types = useMemo(() => {
     const list = query.trim()
@@ -105,11 +121,27 @@ export function ProductPicker({
     return list;
   }, [query]);
 
+  if (type && reading) {
+    const have = owned.find((i) => i.catalogId === type.id && !i.archived);
+    return (
+      <TypeInfo
+        item={type}
+        have={have}
+        onBack={() => setType(null)}
+        onChoose={(asSwitch) => {
+          setSwitchFor(asSwitch ? have?.id : undefined);
+          if (brandsFor(type.id).length) setReading(false);
+          else onPick({ catalogId: type.id, switchFor: asSwitch ? have?.id : undefined });
+        }}
+      />
+    );
+  }
+
   if (type && !brand) {
     const brands = brandsFor(type.id);
     return (
       <div className="space-y-3">
-        <Back onClick={() => setType(null)} label="All types" />
+        <Back onClick={() => setReading(true)} label={`About ${type.name}`} />
         <TypeHeader item={type} />
         <p className="text-sm font-medium">Which brand?</p>
         <div className="grid gap-2">
@@ -126,7 +158,7 @@ export function ProductPicker({
           <Row
             title="Another brand"
             detail="Enter the strength from your label"
-            onClick={() => onPick({ catalogId: type.id })}
+            onClick={() => pick({ catalogId: type.id })}
           >
             <span className="flex size-10 items-center justify-center rounded-xl bg-secondary text-muted-foreground">
               <Pill className="size-5" />
@@ -151,7 +183,7 @@ export function ProductPicker({
             <button
               key={p.id}
               type="button"
-              onClick={() => onPick({ catalogId: type.id, product: p })}
+              onClick={() => pick({ catalogId: type.id, product: p })}
               className="rounded-2xl bg-card p-4 text-left shadow-[var(--shadow-border)]"
             >
               <p className="font-medium">{p.name}</p>
@@ -194,9 +226,17 @@ export function ProductPicker({
             <button
               key={t.id}
               type="button"
-              disabled={taken}
-              onClick={() => (brandsFor(t.id).length ? setType(t) : onPick({ catalogId: t.id }))}
-              className="flex flex-col items-start gap-2 rounded-2xl bg-card p-3 text-left shadow-[var(--shadow-border)] disabled:opacity-45"
+              disabled={blocked.includes(t.id)}
+              onClick={() => {
+                setType(t);
+                setReading(true);
+                setBrand(null);
+              }}
+              className={cn(
+                "flex flex-col items-start gap-2 rounded-2xl bg-card p-3 text-left shadow-[var(--shadow-border)]",
+                taken && "ring-1 ring-primary/30",
+                "disabled:opacity-45",
+              )}
             >
               <span className="flex size-10 items-center justify-center rounded-xl bg-accent text-accent-foreground">
                 <Icon className="size-5" />
@@ -205,7 +245,7 @@ export function ProductPicker({
               <UseTags catalogId={t.id} />
               <span className="text-[11px] leading-tight text-muted-foreground">
                 {taken
-                  ? "Already added"
+                  ? "In your cabinet"
                   : p.kind === "acute" && p.minutes
                     ? `Felt in ${p.minutes.min}–${p.minutes.max} min`
                     : `~day ${p.typicalDay} to feel`}
@@ -221,6 +261,127 @@ export function ProductPicker({
       >
         <span className="font-medium">Not in the list?</span> Create your own
       </button>
+    </div>
+  );
+}
+
+/** Read first: what it is, how it's taken, what to watch for, and how it fits your cabinet. */
+function TypeInfo({
+  item,
+  have,
+  onBack,
+  onChoose,
+}: {
+  item: CatalogItem;
+  have?: StackItem;
+  onBack: () => void;
+  onChoose: (asSwitch: boolean) => void;
+}) {
+  const stack = useSupplime((s) => s.stack);
+  const today = appToday();
+  const p = profileFor({
+    catalogId: item.id,
+    slots: [],
+    foodTiming: item.foodTiming,
+  } as unknown as StackItem);
+  const notes = fitCheck(item.id, { stack, today, excludeId: have?.id });
+  return (
+    <div className="space-y-3">
+      <Back onClick={onBack} label="All types" />
+      <TypeHeader item={item} />
+      <UseTags catalogId={item.id} />
+      <div className="grid grid-cols-2 gap-2 text-sm">
+        <Fact label="Typical dose" value={item.typicalDose} />
+        <Fact
+          label="When you'll feel it"
+          value={
+            p.kind === "acute" && p.minutes
+              ? `${p.minutes.min}–${p.minutes.max} min after a dose`
+              : `around day ${p.typicalDay} (${p.firstSignsDay}–${p.windowEndDay})`
+          }
+        />
+        <Fact label="Best time" value={slotNames(p.timing.best)} />
+        <Fact
+          label="Food"
+          value={
+            p.timing.food.includes("any") ||
+            (p.timing.food.includes("with") && p.timing.food.includes("empty"))
+              ? "With or without"
+              : p.timing.food.includes("with")
+                ? "With food"
+                : "Empty stomach"
+          }
+        />
+      </div>
+      {p.watch.length > 0 && (
+        <p className="text-sm">
+          <span className="font-medium">Watch for:</span> {p.watch.slice(0, 4).join(", ")}.
+        </p>
+      )}
+      {notes.length > 0 && (
+        <div className="space-y-1.5 rounded-2xl bg-card p-4 shadow-[var(--shadow-border)]">
+          <p className="text-sm font-medium">With your cabinet</p>
+          {notes.map((n) => (
+            <p
+              key={n.text}
+              className={cn(
+                "text-sm",
+                n.tone === "warn"
+                  ? "text-warn"
+                  : n.tone === "good"
+                    ? "text-primary"
+                    : "text-muted-foreground",
+              )}
+            >
+              {n.tone === "good" ? "✓ " : n.tone === "warn" ? "! " : "· "}
+              {n.text}
+            </p>
+          ))}
+        </div>
+      )}
+      {have ? (
+        <div className="grid gap-2">
+          <p className="text-sm text-muted-foreground">
+            You have {have.name}
+            {have.product ? ` (${have.product.brand} ${have.product.name})` : ""}.
+          </p>
+          <button
+            type="button"
+            onClick={() => onChoose(true)}
+            className="rounded-xl bg-primary px-4 py-3 text-left text-primary-foreground"
+          >
+            <span className="block font-medium">Switch to a different bottle</span>
+            <span className="block text-xs opacity-80">Keeps your history and timeline.</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => onChoose(false)}
+            className="rounded-xl bg-secondary px-4 py-3 text-left"
+          >
+            <span className="block font-medium">Add a second one anyway</span>
+            <span className="block text-xs text-muted-foreground">
+              Rarely needed: tracked separately.
+            </span>
+          </button>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => onChoose(false)}
+          className="w-full rounded-xl bg-primary px-4 py-3 font-medium text-primary-foreground"
+        >
+          Choose a bottle
+        </button>
+      )}
+    </div>
+  );
+}
+
+function Fact({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-xl bg-secondary px-3 py-2">
+      <p className="text-[11px] text-muted-foreground">{label}</p>
+      <p className="text-sm leading-snug">{value}</p>
     </div>
   );
 }
@@ -305,7 +466,13 @@ const BRAND_COLOR: Record<string, string> = {
 };
 
 /** Small labels: what people usually take it for. */
-export function UseTags({ catalogId, className }: { catalogId: string | null; className?: string }) {
+export function UseTags({
+  catalogId,
+  className,
+}: {
+  catalogId: string | null;
+  className?: string;
+}) {
   const uses = usesFor(catalogId).slice(0, 3);
   if (!uses.length) return null;
   return (

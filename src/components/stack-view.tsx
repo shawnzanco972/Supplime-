@@ -1,5 +1,7 @@
 import { UseTags } from "@/components/product-picker";
 import { ChevronRight } from "lucide-react";
+import { toast } from "sonner";
+import { fitCheck } from "@/lib/advisor";
 import { FlagChip } from "@/components/flag-chip";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -13,13 +15,64 @@ import { SLOTS, type StackItem } from "@/lib/types";
 import { addDays, cn, formatShortDate } from "@/lib/utils";
 import { contentsLabel } from "@/lib/products";
 
+/** Something not in the cabinet yet: ordered or just interested, with how it fits. */
+function Incoming({
+  item,
+  today,
+  line,
+  action,
+  onAction,
+  onOpen,
+}: {
+  item: StackItem;
+  today: string;
+  line: string;
+  action: string;
+  onAction: () => void;
+  onOpen: () => void;
+}) {
+  const stack = useSupplime((s) => s.stack);
+  const notes = item.catalogId
+    ? fitCheck(item.catalogId, { stack, today, arrivesOn: item.arrivesOn, excludeId: item.id })
+    : [];
+  const warn = notes.filter((n) => n.tone === "warn");
+  const first = warn[0] ?? notes.find((n) => n.tone === "info");
+  return (
+    <div className="rounded-2xl bg-card p-4 shadow-[var(--shadow-border)]">
+      <button type="button" onClick={onOpen} className="w-full text-left">
+        <p className="font-medium">{item.name}</p>
+        <p className="text-xs text-muted-foreground">
+          {item.product ? `${item.product.brand} · ` : ""}
+          {line}
+        </p>
+        {first && (
+          <p
+            className={cn(
+              "mt-1.5 text-sm",
+              first.tone === "warn" ? "text-warn" : "text-muted-foreground",
+            )}
+          >
+            {first.text}
+          </p>
+        )}
+      </button>
+      <Button size="sm" variant="outline" className="mt-3" onClick={onAction}>
+        {action}
+      </Button>
+    </div>
+  );
+}
+
 export function StackView() {
   const { stack, profile, logs, effects, decisions } = useSupplime();
   const open = useNav((s) => s.open);
   const today = appToday();
   const active = stack.filter((i) => !i.archived && !i.paused && !i.planned);
   const paused = stack.filter((i) => !i.archived && i.paused);
-  const planned = stack.filter((i) => !i.archived && i.planned);
+  const planned = stack.filter((i) => !i.archived && i.planned && !i.stage);
+  const ordered = stack.filter((i) => !i.archived && i.stage === "ordered");
+  const wishlist = stack.filter((i) => !i.archived && i.stage === "interested");
+  const setStage = useSupplime((s) => s.setStage);
   const warnings = stackWarnings({ stack, times: profile.slotTimes, profile });
   const low = active.filter(isLowStock);
 
@@ -127,6 +180,64 @@ export function StackView() {
             </p>
           </div>
           {planned.map(card)}
+        </section>
+      )}
+
+      {ordered.length > 0 && (
+        <section className="space-y-3">
+          <div>
+            <h2 className="font-display text-lg tracking-tight">On the way</h2>
+            <p className="text-sm text-muted-foreground">
+              Ordered. Not on Today until you say it arrived.
+            </p>
+          </div>
+          {ordered.map((item) => (
+            <Incoming
+              key={item.id}
+              item={item}
+              today={today}
+              line={
+                item.arrivesOn
+                  ? item.arrivesOn <= today
+                    ? `Due around ${formatShortDate(item.arrivesOn)}. Here yet?`
+                    : `Arrives around ${formatShortDate(item.arrivesOn)}`
+                  : "Ordered"
+              }
+              action="It arrived"
+              onAction={() => {
+                setStage(item.id, null);
+                toast(`${item.name} is in your cabinet`, {
+                  description: "Start it from here or Journey when it's a good time.",
+                });
+              }}
+              onOpen={() => open({ kind: "editor", itemId: item.id })}
+            />
+          ))}
+        </section>
+      )}
+
+      {wishlist.length > 0 && (
+        <section className="space-y-3">
+          <div>
+            <h2 className="font-display text-lg tracking-tight">Interested</h2>
+            <p className="text-sm text-muted-foreground">Things you're reading about.</p>
+          </div>
+          {wishlist.map((item) => (
+            <Incoming
+              key={item.id}
+              item={item}
+              today={today}
+              line="Not ordered yet"
+              action="I ordered it"
+              onAction={() => {
+                setStage(item.id, "ordered", addDays(today, 7));
+                toast(`${item.name}: on the way`, {
+                  description: "Arrival set to a week from now. Change it in its page.",
+                });
+              }}
+              onOpen={() => open({ kind: "editor", itemId: item.id })}
+            />
+          ))}
         </section>
       )}
 

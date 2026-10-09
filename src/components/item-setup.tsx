@@ -19,7 +19,6 @@ import {
 import { BrandBadge, iconFor, type Picked } from "@/components/product-picker";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Switch } from "@/components/ui/switch";
 import { CATALOG_BY_ID } from "@/lib/catalog";
 import { profileFor } from "@/lib/knowledge";
 import { contentsLabel, unitWord } from "@/lib/products";
@@ -34,7 +33,7 @@ import type {
   SlotTimes,
   StackItem,
 } from "@/lib/types";
-import { cn, daysBetween } from "@/lib/utils";
+import { addDays, cn, daysBetween } from "@/lib/utils";
 
 export type SetupSeed = Picked & {
   name?: string;
@@ -42,7 +41,16 @@ export type SetupSeed = Picked & {
   unit?: string;
   count?: number;
   source?: StackItem["source"];
+  own?: Own;
 };
+
+type Own = "taking" | "later" | "ordered" | "interested";
+const OWN: { id: Own; label: string; detail: string }[] = [
+  { id: "taking", label: "Taking it", detail: "Reminders start now" },
+  { id: "later", label: "Have it, not started", detail: "Start when it's a good time" },
+  { id: "ordered", label: "Ordered", detail: "On its way" },
+  { id: "interested", label: "Just interested", detail: "Thinking about it" },
+];
 
 /**
  * Everything needed to add one supplement, pre-filled from the guide and the bottle:
@@ -92,7 +100,11 @@ export function ItemSetupForm({
   const [leftTyped, setLeft] = useState<number | undefined>(undefined);
   const [startedAt, setStartedAt] = useState(today);
   const [consistency, setConsistency] = useState<Consistency>("most");
-  const [planned, setPlanned] = useState(false);
+  // Do you have it? taking it / have it, start later / ordered / just interested.
+  const [own, setOwn] = useState<Own>(seed.own ?? "taking");
+  const planned = own !== "taking";
+  const owned = own === "taking" || own === "later";
+  const [arrivesOn, setArrivesOn] = useState(addDays(today, 7));
   const [editTimeline, setEditTimeline] = useState(!cat);
   const [timeline, setTimeline] = useState<TimelineValue>({
     firstSignsDay: guide.firstSignsDay,
@@ -160,9 +172,11 @@ export function ItemSetupForm({
       slots,
       startedAt: planned ? today : startedAt,
       planned,
+      stage: own === "ordered" ? "ordered" : own === "interested" ? "interested" : undefined,
+      arrivesOn: own === "ordered" ? arrivesOn : undefined,
       backfill: !planned && startedAt < today ? consistency : undefined,
       servingsPerContainer: count,
-      remaining: full ? undefined : left,
+      remaining: full || !owned ? undefined : left,
       servingLabel: product ? contentsLabel(product.perUnit, 1, product.form) : undefined,
       overrides: Object.keys(overrides).length ? overrides : undefined,
       source:
@@ -240,17 +254,35 @@ export function ItemSetupForm({
         )}
       </Section>
 
-      <Section title="Already taking it?">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <p className="text-sm font-medium">Not started yet — it's in my cabinet</p>
-            <p className="text-xs text-muted-foreground">
-              No reminders. Supplime suggests when to start it.
-            </p>
-          </div>
-          <Switch checked={planned} onCheckedChange={setPlanned} />
+      <Section title="Do you have it?">
+        <div className="grid grid-cols-2 gap-2">
+          {OWN.map((o) => (
+            <button
+              key={o.id}
+              type="button"
+              aria-pressed={own === o.id}
+              onClick={() => setOwn(o.id)}
+              className={cn(
+                "rounded-xl border-2 px-3 py-2 text-left",
+                own === o.id ? "border-primary bg-accent/60" : "border-border bg-card",
+              )}
+            >
+              <span className="block text-sm font-medium">{o.label}</span>
+              <span className="block text-xs text-muted-foreground">{o.detail}</span>
+            </button>
+          ))}
         </div>
-        {!planned && (
+        {own === "ordered" && (
+          <Field label="Arrives around" hint="Supplime checks how it fits before it lands.">
+            <Input
+              type="date"
+              value={arrivesOn}
+              min={today}
+              onChange={(e) => e.target.value && setArrivesOn(e.target.value)}
+            />
+          </Field>
+        )}
+        {own === "taking" && (
           <>
             <StartedPicker value={startedAt} onChange={setStartedAt} today={today} />
             {startedAt < today && (
@@ -306,26 +338,28 @@ export function ItemSetupForm({
             <NumberInput value={count} step={1} onChange={setCount} />
           </Field>
         )}
-        <div className="flex flex-wrap items-center gap-2">
-          <Chip on={full} onClick={() => setFull(true)}>
-            New / full
-          </Chip>
-          <Chip on={!full} onClick={() => setFull(false)}>
-            Already opened
-          </Chip>
-          {!full && (
-            <span className="flex items-center gap-2 text-sm">
-              <NumberInput
-                className="w-20"
-                step={1}
-                value={left}
-                onChange={setLeft}
-                placeholder="left"
-              />{" "}
-              left
-            </span>
-          )}
-        </div>
+        {owned && (
+          <div className="flex flex-wrap items-center gap-2">
+            <Chip on={full} onClick={() => setFull(true)}>
+              New / full
+            </Chip>
+            <Chip on={!full} onClick={() => setFull(false)}>
+              Already opened
+            </Chip>
+            {!full && (
+              <span className="flex items-center gap-2 text-sm">
+                <NumberInput
+                  className="w-20"
+                  step={1}
+                  value={left}
+                  onChange={setLeft}
+                  placeholder="left"
+                />{" "}
+                left
+              </span>
+            )}
+          </div>
+        )}
         {!full && pastDays > 0 && leftTyped === undefined && (
           <p className="text-xs text-muted-foreground">
             Estimated from {pastDays} days since {startedAt.slice(5)}. Count the bottle and correct

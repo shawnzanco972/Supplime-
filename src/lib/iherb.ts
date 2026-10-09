@@ -173,3 +173,44 @@ function titleCase(s: string) {
   if (s !== s.toLowerCase()) return s;
   return s.replace(/(^|[\s-])([a-z])/g, (_, pre, c) => pre + c.toUpperCase());
 }
+
+/** An iHerb link that doesn't name the product itself, e.g. the app's iherb.co share links. */
+export function isShortLink(text: string) {
+  const url = text.match(/https?:\/\/\S+/)?.[0];
+  return !!url && /iherb\.co\b|iherb\.com\/(?!pr\/)/i.test(url) && !/\/pr\//.test(url);
+}
+
+/**
+ * Follow a short iHerb link (https://iherb.co/UzUjrEP7) to the product page and return
+ * text parseProduct understands: the product title plus its /pr/ URL. On the phone the
+ * request goes through the native HTTP client, so redirects and CORS aren't a problem.
+ */
+export async function resolveShortLink(text: string): Promise<string | null> {
+  const url = text.match(/https?:\/\/\S+/)?.[0];
+  if (!url) return null;
+  try {
+    const { CapacitorHttp } = await import("@capacitor/core");
+    const res = await CapacitorHttp.get({
+      url,
+      headers: { "User-Agent": "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/126 Mobile" },
+      responseType: "text",
+    });
+    const finalUrl = typeof res.url === "string" ? res.url : "";
+    const html = typeof res.data === "string" ? res.data : "";
+    const pr =
+      (/\/pr\//.test(finalUrl) ? finalUrl : undefined) ??
+      html.match(/https?:\/\/(?:[a-z]+\.)?iherb\.com\/pr\/[^"'\s<>]+/i)?.[0];
+    const title =
+      html.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']/i)?.[1] ??
+      html.match(/<title>([^<]+)<\/title>/i)?.[1];
+    const clean = title
+      ?.replace(/&amp;/g, "&")
+      .replace(/&#39;|&apos;/g, "'")
+      .replace(/\s*[-|]\s*iHerb.*$/i, "")
+      .trim();
+    if (!pr && !clean) return null;
+    return [clean, pr].filter(Boolean).join(" ");
+  } catch {
+    return null;
+  }
+}

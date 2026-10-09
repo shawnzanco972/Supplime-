@@ -24,6 +24,7 @@ import { Confirm, Screen, Sheet } from "@/components/ui/screen";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { KNOWLEDGE, pillsFor, profileFor, unitStrength } from "@/lib/knowledge";
+import { fitCheck } from "@/lib/advisor";
 import { contentsLabel, productsFor, unitWord } from "@/lib/products";
 import { useNav } from "@/lib/nav";
 import { EFFECT_COPY, daysOfStock, effectHistory } from "@/lib/stats";
@@ -64,6 +65,8 @@ function Editor({ item, onClose }: { item: StackItem; onClose: () => void }) {
   const restoreItem = useSupplime((s) => s.restoreItem);
   const refill = useSupplime((s) => s.refill);
   const startPlanned = useSupplime((s) => s.startPlanned);
+  const setStage = useSupplime((s) => s.setStage);
+  const allStack = useSupplime((s) => s.stack);
   const removeEffect = useSupplime((s) => s.removeEffect);
   const today = appToday();
   const p = profileFor(item);
@@ -105,15 +108,19 @@ function Editor({ item, onClose }: { item: StackItem; onClose: () => void }) {
 
   const doseChanged = d.amount !== undefined && d.amount > 0 && d.amount !== item.amount;
   // Changing how many times a day: keep the amount per dose, or the daily total?
-  const slotsChanged = d.slots.length > 0 && d.slots.length !== item.slots.length && !doseChangedByHand();
+  const slotsChanged =
+    d.slots.length > 0 && d.slots.length !== item.slots.length && !doseChangedByHand();
   const strength = unitStrength(item).amount;
   const totalPills = pillsFor(item) * item.slots.length;
   const dailyPills =
-    d.slots.length > 0 && totalPills % d.slots.length === 0 && totalPills / d.slots.length !== pillsFor(item)
+    d.slots.length > 0 &&
+    totalPills % d.slots.length === 0 &&
+    totalPills / d.slots.length !== pillsFor(item)
       ? totalPills / d.slots.length
       : null;
   const dailyAmount = dailyPills !== null ? Math.round(dailyPills * strength * 1000) / 1000 : null;
-  const defaultSlotMode: "per-dose" | "daily" = p.kind === "acute" || dailyPills === null ? "per-dose" : "daily";
+  const defaultSlotMode: "per-dose" | "daily" =
+    p.kind === "acute" || dailyPills === null ? "per-dose" : "daily";
   const useDaily = slotsChanged && dailyPills !== null && (slotMode ?? defaultSlotMode) === "daily";
   const perDoseLabel = (amount: number) => {
     const n = Math.max(1, Math.round(amount / strength));
@@ -126,8 +133,7 @@ function Editor({ item, onClose }: { item: StackItem; onClose: () => void }) {
     (l) => l.itemId === item.id && l.date === today && l.status === "taken",
   );
   const startTomorrow = d.startTomorrow ?? takenToday;
-  const changedToday =
-    item.doseHistory.length > 1 && item.doseHistory.at(-1)?.date === today;
+  const changedToday = item.doseHistory.length > 1 && item.doseHistory.at(-1)?.date === today;
   const prod = d.product;
   const pills = prod ? Math.max(1, Math.round((d.amount ?? item.amount) / prod.dosePerUnit)) : 1;
   const choices = item.catalogId ? productsFor(item.catalogId) : [];
@@ -235,21 +241,72 @@ function Editor({ item, onClose }: { item: StackItem; onClose: () => void }) {
       <div className="space-y-4">
         {p.catalog && <p className="text-sm text-muted-foreground">{p.catalog.summary}</p>}
         {item.planned && (
-          <div className="rounded-2xl bg-accent p-4">
-            <p className="font-medium text-accent-foreground">In your cabinet, not started yet</p>
-            <p className="mt-1 text-sm text-accent-foreground/80">
-              Starting it begins day 1 and its reminders.
+          <div className="space-y-3 rounded-2xl bg-accent p-4 text-accent-foreground">
+            <p className="font-medium">
+              {item.stage === "interested"
+                ? "You're interested, not ordered yet"
+                : item.stage === "ordered"
+                  ? "Ordered, on its way"
+                  : "In your cabinet, not started yet"}
             </p>
-            <Button
-              className="mt-3"
-              onClick={() => {
-                startPlanned(item.id);
-                toast(`${item.name}: day 1`, { description: "One new thing at a time — nice." });
-                onClose();
-              }}
-            >
-              Start it today
-            </Button>
+            {item.stage === "ordered" && (
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-sm">Arrives around</span>
+                <Input
+                  type="date"
+                  className="w-40"
+                  value={item.arrivesOn ?? today}
+                  onChange={(e) => e.target.value && setStage(item.id, "ordered", e.target.value)}
+                />
+              </div>
+            )}
+            {item.catalogId &&
+              fitCheck(item.catalogId, {
+                stack: allStack,
+                today,
+                arrivesOn: item.arrivesOn,
+                excludeId: item.id,
+              }).map((n) => (
+                <p key={n.text} className={cn("text-sm", n.tone === "warn" && "text-warn")}>
+                  {n.tone === "good" ? "✓ " : n.tone === "warn" ? "! " : "· "}
+                  {n.text}
+                </p>
+              ))}
+            <div className="flex flex-wrap gap-2">
+              {item.stage === "interested" && (
+                <Button
+                  onClick={() => {
+                    setStage(item.id, "ordered", addDays(today, 7));
+                    toast(`${item.name}: on the way`);
+                  }}
+                >
+                  I ordered it
+                </Button>
+              )}
+              {item.stage === "ordered" && (
+                <Button
+                  onClick={() => {
+                    setStage(item.id, null);
+                    toast(`${item.name} is in your cabinet`);
+                  }}
+                >
+                  It arrived
+                </Button>
+              )}
+              {!item.stage && (
+                <Button
+                  onClick={() => {
+                    startPlanned(item.id);
+                    toast(`${item.name}: day 1`, {
+                      description: "One new thing at a time — nice.",
+                    });
+                    onClose();
+                  }}
+                >
+                  Start it today
+                </Button>
+              )}
+            </div>
           </div>
         )}
 
@@ -538,9 +595,20 @@ function Editor({ item, onClose }: { item: StackItem; onClose: () => void }) {
               variant="outline"
               size="sm"
               onClick={() => {
+                const before = item.servingsRemaining;
                 refill(item.id);
                 set({ servingsRemaining: item.servingsPerContainer });
-                toast(`Refilled ${item.name}`);
+                toast(`New bottle: ${item.servingsPerContainer} left`, {
+                  description: `Was ${before}. Tap Undo if that was a mistake.`,
+                  duration: 8000,
+                  action: {
+                    label: "Undo",
+                    onClick: () => {
+                      useSupplime.getState().updateItem(item.id, { servingsRemaining: before });
+                      set({ servingsRemaining: before });
+                    },
+                  },
+                });
               }}
             >
               New bottle
@@ -565,7 +633,10 @@ function Editor({ item, onClose }: { item: StackItem; onClose: () => void }) {
             title="History"
             hint="Forgot to log, or were away? Fix any day of the last 6 weeks."
           >
-            <Button variant="outline" onClick={() => openOverlay({ kind: "history", itemId: item.id })}>
+            <Button
+              variant="outline"
+              onClick={() => openOverlay({ kind: "history", itemId: item.id })}
+            >
               Edit past days
             </Button>
           </Section>

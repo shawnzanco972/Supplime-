@@ -100,7 +100,7 @@ export function NotNowSheet({
       {advice && (
         <div className="space-y-4">
           <div className="rounded-2xl bg-secondary p-4">
-            <p className="font-display text-lg tracking-tight">{advice.title}</p>
+            <p className="text-base font-semibold">{advice.title}</p>
             <p className="mt-1 text-sm text-muted-foreground">{advice.message}</p>
           </div>
 

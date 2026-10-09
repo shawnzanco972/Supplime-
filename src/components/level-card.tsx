@@ -27,7 +27,7 @@ export function LevelCard({
         />
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline justify-between gap-2">
-            <p className="font-display text-lg tracking-tight">
+            <p className="text-base font-semibold">
               Level {level.level} · {level.name}
             </p>
             <p className="text-xs tabular-nums text-muted-foreground">{game.xp} XP</p>

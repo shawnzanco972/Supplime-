@@ -102,6 +102,13 @@ export type StackItem = {
   product?: ItemProduct;
   /** In your cabinet but not started yet: no reminders, offered as a next experiment. */
   planned?: boolean;
+  /**
+   * Before it's in your cabinet: just reading about it ("interested") or bought and on its
+   * way ("ordered"). Both are also `planned`, so they never show on Today.
+   */
+  stage?: "interested" | "ordered";
+  /** For an ordered bottle: roughly when it arrives. */
+  arrivesOn?: string;
   /** You set your own reorder warning for this bottle (otherwise it follows Settings). */
   reorderCustom?: boolean;
   /** Food options you're fine with (defaults from the guide). */

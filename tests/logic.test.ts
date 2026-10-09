@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { advise, backfillLogs, beforeAfter, nextAsk, safetyDue } from "@/lib/advisor";
 import { PRODUCT_BY_ID, contentsLabel, matchProduct } from "@/lib/products";
-import { doseFlags } from "@/lib/flags";
+import { coffeeTips, doseFlags } from "@/lib/flags";
 import {
   bonusDay,
   levelFor,
@@ -862,5 +862,83 @@ describe("v3.4: real mornings and evening check-ins", () => {
         (n) => (n.extra as { kind?: string }).kind === "feel",
       ),
     ).toBe(false);
+  });
+});
+
+describe("v3.5: coffee that fits", () => {
+  const theanineTwice = () => {
+    setup(["l-theanine", "melatonin"]);
+    const id = byCat("l-theanine").id;
+    s().updateItem(id, { slots: ["breakfast", "afternoon"] });
+    vi.setSystemTime(new Date(2026, 9, 6, 10, 54, 0));
+    s().logDose(id, "breakfast", "taken", TODAY);
+    return id;
+  };
+  const tips = (cup: string) =>
+    coffeeTips({ stack: s().stack, logs: s().logs, profile: s().profile, times: s().profile.slotTimes, date: TODAY, cup });
+
+  it("doesn't pair an afternoon dose with this morning's coffee", () => {
+    theanineTwice();
+    s().setDay(TODAY, { coffeeAt: ["09:54"] });
+    const flags = doseFlags({
+      item: byCat("l-theanine"),
+      slot: "afternoon",
+      times: s().profile.slotTimes,
+      profile: s().profile,
+      stack: s().stack,
+      day: s().days.find((d) => d.date === TODAY),
+    });
+    const coffee = flags.find((f) => f.icon === "coffee")!;
+    expect(coffee.text).toBe("Pairs well with coffee: take it with your next one.");
+  });
+
+  it("a 3:40 pm coffee is a good moment for the afternoon theanine", () => {
+    theanineTwice();
+    const t = tips("15:40");
+    expect(t).toHaveLength(1);
+    expect(t[0]).toMatchObject({ kind: "take-now", slot: "afternoon" });
+  });
+
+  it("not right after the morning dose", () => {
+    theanineTwice();
+    expect(tips("11:30")).toHaveLength(0);
+  });
+});
+
+describe("v3.5: bottles, orders and short links", () => {
+  it("switching to a same-strength bottle keeps the timeline", () => {
+    setup(["l-theanine"]);
+    const id = byCat("l-theanine").id;
+    s().updateItem(id, { amount: 200, startedAt: "2026-09-01", doseHistory: [{ date: "2026-09-01", amount: 200, unit: "mg" }] });
+    const now = PRODUCT_BY_ID["now-theanine-200"] ?? Object.values(PRODUCT_BY_ID).find((p) => p.catalogId === "l-theanine" && p.dosePerUnit === 200)!;
+    s().switchBottle(id, { product: { ...now }, units: 1, bottle: 120, startOn: TODAY });
+    const item = byCat("l-theanine");
+    expect(item.product?.brand).toBe(now.brand);
+    expect(item.doseHistory).toHaveLength(1);
+    expect(item.servingsRemaining).toBe(120);
+  });
+
+  it("ordered and interested items stay off Today until they arrive", () => {
+    setup(["lions-mane"]);
+    s().addItem({ catalogId: "magnesium", stage: "ordered", arrivesOn: "2026-10-12" });
+    const mg = byCat("magnesium");
+    expect(mg).toMatchObject({ planned: true, stage: "ordered", arrivesOn: "2026-10-12" });
+    expect(advise({ ...s(), today: TODAY }).planned.some((i) => i.id === mg.id)).toBe(false);
+    s().setStage(mg.id, null);
+    expect(byCat("magnesium").stage).toBeUndefined();
+    expect(advise({ ...s(), today: TODAY }).planned.some((i) => i.id === mg.id)).toBe(true);
+  });
+
+  it("recognises iHerb app share links that need resolving", async () => {
+    const { isShortLink } = await import("@/lib/iherb");
+    expect(isShortLink("https://iherb.co/UzUjrEP7?utm_medium=appshare")).toBe(true);
+    expect(isShortLink("https://www.iherb.com/pr/now-foods-melatonin-3-mg/10930")).toBe(false);
+  });
+
+  it("warns when you add a second bottle of something you take", async () => {
+    const { fitCheck } = await import("@/lib/advisor");
+    setup(["l-theanine"]);
+    const notes = fitCheck("l-theanine", { stack: s().stack, today: TODAY });
+    expect(notes[0]?.tone).toBe("warn");
   });
 });

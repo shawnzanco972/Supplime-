@@ -140,16 +140,29 @@ export function doseFlags(input: {
         );
         break;
       }
-      case "pairs-caffeine":
-        if (profile.habits.coffee) {
-          const cup = day?.coffeeAt?.at(-1) ?? profile.habits.coffeeTime;
-          flags.push({
-            tone: "good",
-            icon: "coffee",
-            text: `Pairs well with your ${formatClock(cup)} coffee.`,
-          });
-        }
+      case "pairs-caffeine": {
+        // Only name a coffee that's actually near this window.
+        const cups = [...(day?.coffeeAt ?? [])];
+        if (profile.habits.coffee && !cups.length) cups.push(profile.habits.coffeeTime);
+        const near = cups
+          .map((c) => ({ c, d: Math.abs(dayMinutes(c, wake) - at) }))
+          .filter((x) => x.d <= 60)
+          .sort((a, b) => a.d - b.d)[0];
+        flags.push(
+          near
+            ? {
+                tone: "good",
+                icon: "coffee",
+                text: `Take it with your ${formatClock(near.c)} coffee: it smooths the jitters.`,
+              }
+            : {
+                tone: "info",
+                icon: "coffee",
+                text: "Pairs well with coffee: take it with your next one.",
+              },
+        );
         break;
+      }
       case "avoid-alcohol": {
         const hours = rule.hours ?? 3;
         const drink = (day?.alcoholAt ?? []).find((d) => {
@@ -225,4 +238,86 @@ export function stackWarnings(input: {
     }
   }
   return out;
+}
+
+export type CoffeeTip = {
+  item: StackItem;
+  slot: SlotId;
+  kind: "take-now" | "wait";
+  text: string;
+};
+
+/**
+ * You just had a coffee at `cup`. Which open doses pair with it and are fine to take now
+ * (right time of day, not too close to bed if stimulating, ≥ 3 h since your last dose of the
+ * same supplement)? And which upcoming doses should wait because caffeine gets in the way?
+ */
+export function coffeeTips(input: {
+  stack: StackItem[];
+  logs: { itemId: string; slot: SlotId; date: string; status: string; at: string }[];
+  profile: Pick<Profile, "rhythm" | "habits">;
+  times: SlotTimes;
+  date: string;
+  cup: string;
+}): CoffeeTip[] {
+  const { stack, logs, profile, times, date, cup } = input;
+  const wake = profile.rhythm.wake;
+  const cupM = dayMinutes(cup, wake);
+  const bed = dayMinutes(profile.rhythm.bed, wake);
+  const today = logs.filter((l) => l.date === date);
+  const tips: CoffeeTip[] = [];
+  const minuteOf = (iso: string) => {
+    const d = new Date(iso);
+    return dayMinutes(
+      `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`,
+      wake,
+    );
+  };
+  for (const item of activeStack(stack)) {
+    const p = profileFor(item);
+    const done = (slot: SlotId) => today.some((l) => l.itemId === item.id && l.slot === slot && l.status !== "deferred");
+    const open = item.slots
+      .filter((s) => !done(s))
+      .sort((a, b) => dayMinutes(times[a], wake) - dayMinutes(times[b], wake));
+    if (!open.length) continue;
+
+    if (p.rules.some((r) => r.kind === "pairs-caffeine")) {
+      const slot = open[0]!;
+      const lastTaken = today
+        .filter((l) => l.itemId === item.id && l.status === "taken")
+        .map((l) => minuteOf(l.at))
+        .sort((a, b) => b - a)[0];
+      const stimulating = p.rules.some((r) => r.kind === "stimulating");
+      const tooLate = stimulating && cupM > bed - 8 * 60;
+      const tooSoon = lastTaken !== undefined && cupM - lastTaken < 180;
+      const badWindow = p.timing.avoid.some(
+        (s) => Math.abs(dayMinutes(times[s], wake) - cupM) < 60,
+      );
+      if (!tooLate && !tooSoon && !badWindow) {
+        tips.push({
+          item,
+          slot,
+          kind: "take-now",
+          text: `Good moment for ${item.name}: it pairs with coffee and smooths the jitters.`,
+        });
+      }
+    }
+
+    const avoid = p.rules.find((r) => r.kind === "avoid-caffeine");
+    if (avoid) {
+      const hours = avoid.hours ?? 1;
+      for (const slot of open) {
+        const m = dayMinutes(times[slot], wake);
+        if (m >= cupM - 30 && m - cupM < hours * 60) {
+          tips.push({
+            item,
+            slot,
+            kind: "wait",
+            text: `Wait until ${formatClock(formatHHMM((cupM + hours * 60) % 1440))} for ${item.name}: coffee gets in the way.`,
+          });
+        }
+      }
+    }
+  }
+  return tips;
 }

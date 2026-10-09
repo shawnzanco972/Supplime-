@@ -57,9 +57,7 @@ export function BodyView() {
   const sync = useSupplime((s) => s.profile.healthSync);
   const today = appToday();
   const byDate = useMemo(() => new Map(body.map((b) => [b.date, b])), [body]);
-  const available = METRICS.filter(
-    (m) => !m.self && body.some((b) => num(b, m.key) !== undefined),
-  );
+  const available = METRICS.filter((m) => !m.self && body.some((b) => num(b, m.key) !== undefined));
   const [metricKey, setMetricKey] = useState<keyof BodyLog>("sleepHours");
   const metric = available.find((m) => m.key === metricKey) ?? available[0] ?? METRICS[0]!;
 
@@ -133,7 +131,7 @@ export function BodyView() {
                   metric.key === m.key && "ring-2 ring-primary",
                 )}
               >
-                <p className="font-display text-xl tabular-nums tracking-tight">{show(m, v)}</p>
+                <p className="text-lg font-semibold tabular-nums">{show(m, v)}</p>
                 <p className="mt-0.5 text-[11px] text-muted-foreground">
                   {m.label}
                   {date !== today ? ` · ${formatShortDate(date)}` : ""}
@@ -149,9 +147,7 @@ export function BodyView() {
 
       <section className="rounded-2xl bg-card p-4 shadow-[var(--shadow-border)]">
         <div className="flex flex-wrap gap-1.5">
-          <p className="mr-1 self-center text-xs font-medium tracking-wide text-muted-foreground uppercase">
-            Vitals
-          </p>
+          <p className="mr-1 self-center text-xs font-medium text-muted-foreground">Vitals</p>
           {(available.length ? available : METRICS.slice(0, 1)).map((m) => (
             <Chip key={m.key} on={m.key === metric.key} onClick={() => setMetricKey(m.key)}>
               {m.label}
@@ -163,9 +159,7 @@ export function BodyView() {
           {last7 !== null && (
             <p className="text-xs text-muted-foreground">
               7-day avg <span className="font-medium text-foreground">{show(metric, last7)}</span>
-              {prev7 !== null && (
-                <Trend now={last7} before={prev7} metric={metric} />
-              )}
+              {prev7 !== null && <Trend now={last7} before={prev7} metric={metric} />}
             </p>
           )}
         </div>
@@ -211,8 +205,7 @@ export function BodyView() {
         </div>
         {markers.length > 0 && (
           <p className="mt-1 text-xs text-muted-foreground">
-            Dashed lines:{" "}
-            {markers.map((m) => `${m.text} (${formatShortDate(m.date)})`).join(" · ")}
+            Dashed lines: {markers.map((m) => `${m.text} (${formatShortDate(m.date)})`).join(" · ")}
           </p>
         )}
         {available.length === 0 && (

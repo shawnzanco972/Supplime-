@@ -46,7 +46,7 @@ export function JourneyView() {
       <header>
         <p className="text-sm text-muted-foreground">Your experiments</p>
         <h1 className="font-display text-3xl tracking-tight">Journey</h1>
-        {profile.why && <p className="mt-1 text-sm text-primary italic">“{profile.why}”</p>}
+        {profile.why && <p className="mt-1 text-sm text-primary">“{profile.why}”</p>}
       </header>
 
       <LevelCard game={game} />
@@ -214,8 +214,8 @@ function DayGridCard() {
       ) : (
         !hasSleep && (
           <p className="mt-2 text-xs text-muted-foreground">
-            Connect Fitbit / Google Health on the Body tab to see your sleep under each day and
-            spot nights that follow a missed dose.
+            Connect Fitbit / Google Health on the Body tab to see your sleep under each day and spot
+            nights that follow a missed dose.
           </p>
         )
       )}
@@ -382,7 +382,9 @@ export function JourneyCard({
                 key={x.metric}
                 className={cn(
                   "rounded-lg px-2 py-1 text-xs",
-                  x.helps ? "bg-accent text-accent-foreground" : "bg-secondary text-muted-foreground",
+                  x.helps
+                    ? "bg-accent text-accent-foreground"
+                    : "bg-secondary text-muted-foreground",
                 )}
               >
                 {METRIC_COPY[x.metric].label} after days you took it: {x.taken}
@@ -581,9 +583,7 @@ export function EvaluateSheet({ itemId }: { itemId: string }) {
           </p>
         )}
         <div className="rounded-2xl bg-accent/70 p-3">
-          <p className="text-xs font-medium tracking-wide text-accent-foreground uppercase">
-            Supplime suggests
-          </p>
+          <p className="text-xs font-medium text-accent-foreground">Supplime suggests</p>
           <p className="mt-0.5 font-medium">{j.recommendation.title}</p>
           <p className="text-sm text-muted-foreground">{j.recommendation.why}</p>
         </div>
@@ -722,9 +722,7 @@ export function SwapCard({
 }) {
   return (
     <div className="space-y-2 rounded-2xl border-2 border-dashed border-primary/40 p-3">
-      <p className="text-xs font-medium tracking-wide text-primary uppercase">
-        Plan ahead: different capsule
-      </p>
+      <p className="text-xs font-medium text-primary">Plan ahead: different capsule</p>
       <p className="text-sm">{swap.why}</p>
       <p className="text-sm font-medium">
         {orderBy <= today
@@ -745,7 +743,7 @@ export function SwapCard({
 function Stat({ value, label }: { value: string; label: string }) {
   return (
     <div className="rounded-xl bg-secondary px-2 py-3">
-      <p className="font-display text-xl tabular-nums">{value}</p>
+      <p className="text-lg font-semibold tabular-nums">{value}</p>
       <p className="text-[11px] text-muted-foreground">{label}</p>
     </div>
   );
@@ -948,8 +946,8 @@ function WhatsNext() {
 
       {a.planned.map((item) => (
         <div key={item.id} className="rounded-2xl bg-primary p-4 text-primary-foreground">
-          <p className="text-xs tracking-wide uppercase opacity-80">In your cabinet</p>
-          <p className="mt-1 font-display text-lg">Start {item.name}</p>
+          <p className="text-xs opacity-80">In your cabinet</p>
+          <p className="mt-1 text-lg font-semibold">Start {item.name}</p>
           <p className="mt-1 text-sm opacity-85">
             {a.slotOpen
               ? "You already own it — it's the obvious next experiment. Start it alone so you can tell what it does."
@@ -982,9 +980,7 @@ function WhatsNext() {
           onClick={() => open({ kind: "evaluate", itemId: x.item.id })}
           className="w-full rounded-2xl bg-card p-4 text-left shadow-[var(--shadow-border)]"
         >
-          <p className="text-xs font-medium tracking-wide text-primary uppercase">
-            Ready for a higher dose
-          </p>
+          <p className="text-xs font-medium text-primary">Ready for a higher dose</p>
           <p className="mt-1 font-medium">
             {x.item.name}: {fmtDose(x.item, x.item.amount)} →{" "}
             {x.swap
@@ -1025,7 +1021,7 @@ function WhatsNext() {
           }
           className="w-full rounded-2xl bg-card p-4 text-left shadow-[var(--shadow-border)]"
         >
-          <p className="text-xs font-medium tracking-wide text-warn uppercase">Reconsider</p>
+          <p className="text-xs font-medium text-warn">Reconsider</p>
           <p className="mt-1 font-medium">
             {r.item.name}: {r.title}
           </p>

@@ -249,7 +249,8 @@ export function advise(state: {
 }): Advice {
   const { stack, logs, effects, decisions, checks, profile, today } = state;
   const active = stack.filter((i) => !i.archived && !i.paused && !i.planned);
-  const planned = stack.filter((i) => i.planned && !i.archived);
+  // Only what's actually in the cabinet can be started; ordered/interested wait.
+  const planned = stack.filter((i) => i.planned && !i.stage && !i.archived);
   const have = new Set(
     stack
       .filter((i) => !i.archived)
@@ -424,3 +425,89 @@ export function slotNames(slots: SlotId[]) {
 }
 
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
+export type FitNote = { tone: "good" | "info" | "warn"; text: string };
+
+/**
+ * How a supplement you're considering (or have ordered) fits with what's already in your
+ * cabinet: duplicates and combined daily totals, pairs that clash or work well, spacing
+ * rules, stacked drowsiness or stimulation, and when it's best to start it.
+ */
+export function fitCheck(
+  catalogId: string,
+  state: { stack: StackItem[]; today: string; arrivesOn?: string; excludeId?: string },
+): FitNote[] {
+  const { stack, today } = state;
+  const cat = CATALOG.find((c) => c.id === catalogId);
+  if (!cat) return [];
+  const notes: FitNote[] = [];
+  const active = stack.filter(
+    (i) => !i.archived && !i.paused && !i.planned && i.id !== state.excludeId,
+  );
+  const mine = profileFor({ catalogId, slots: [], foodTiming: cat.foodTiming } as unknown as StackItem);
+
+  // Same supplement already in the cabinet.
+  const same = stack.filter((i) => i.catalogId === catalogId && !i.archived && i.id !== state.excludeId);
+  for (const s of same) {
+    const daily = s.amount * Math.max(1, s.slots.length);
+    notes.push({
+      tone: "warn",
+      text: `You already have ${s.name}${s.product ? ` (${s.product.brand})` : ""} at ${fmtDose(s, s.amount)}${s.slots.length > 1 ? ` ×${s.slots.length}` : ""}. Switch bottles on that one instead of adding a second${mine.maxDaily ? `; together they'd pass the usual ${mine.maxDaily} ${cat.unit} a day quickly (now ${daily})` : ""}.`,
+    });
+  }
+
+  for (const other of active) {
+    if (!other.catalogId || other.catalogId === catalogId) continue;
+    const clash =
+      (AVOID_COMBO[catalogId] ?? []).includes(other.catalogId) ||
+      (AVOID_COMBO[other.catalogId] ?? []).includes(catalogId);
+    if (clash)
+      notes.push({
+        tone: "warn",
+        text: `Not a good match with your ${other.name}: they overlap. Consider one or the other.`,
+      });
+    const pair = SYNERGY[catalogId]?.[other.catalogId] ?? SYNERGY[other.catalogId]?.[catalogId];
+    if (pair) notes.push({ tone: "good", text: pair });
+    const theirs = profileFor(other);
+    const sep =
+      mine.rules.find((r) => r.kind === "separate" && r.with?.includes(other.catalogId!)) ??
+      theirs.rules.find((r) => r.kind === "separate" && r.with?.includes(catalogId));
+    if (sep)
+      notes.push({
+        tone: "info",
+        text: `Keep it ${sep.hours ?? 2} h apart from your ${other.name}. Supplime will place them in different windows.`,
+      });
+    const drowsy = (p: typeof mine) => p.rules.some((r) => r.kind === "drowsy");
+    const stim = (p: typeof mine) => p.rules.some((r) => r.kind === "stimulating");
+    if (drowsy(mine) && drowsy(theirs))
+      notes.push({
+        tone: "info",
+        text: `Both this and your ${other.name} can make you drowsy. Fine at night together, but start low and notice mornings.`,
+      });
+    if (stim(mine) && stim(theirs))
+      notes.push({
+        tone: "info",
+        text: `Both this and your ${other.name} are stimulating. Keep both in the morning.`,
+      });
+  }
+
+  // One new thing at a time.
+  const newest = [...active].sort((a, b) => b.startedAt.localeCompare(a.startedAt))[0];
+  if (newest) {
+    const p = profileFor(newest);
+    const opens = addDays(newest.startedAt, Math.min(21, p.kind === "acute" ? 7 : p.typicalDay));
+    const from = state.arrivesOn && state.arrivesOn > today ? state.arrivesOn : today;
+    notes.push(
+      opens > from
+        ? {
+            tone: "info",
+            text: `Best started after ${opens}: ${newest.name} is still settling in, and starting one new thing at a time shows you what works.`,
+          }
+        : { tone: "good", text: "Your newest supplement has settled in: a good time to start something new." },
+    );
+  }
+  if (mine.needsLabs)
+    notes.push({ tone: "info", text: "Mainly worth it if a blood test shows you're low." });
+  if (cat.caution) notes.push({ tone: "info", text: cat.caution });
+  return notes;
+}

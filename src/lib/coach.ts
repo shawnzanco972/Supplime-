@@ -50,8 +50,17 @@ export function buildCoachPrompt(state: PersistedData, today: string) {
       lines.push(`  Wearable ${d.metric}: ${d.before} before → ${d.after} since starting.`);
     }
   }
-  if (planned.length)
-    lines.push(`Owned but not started yet: ${planned.map((i) => i.name).join(", ")}.`);
+  const owned = planned.filter((i) => !i.stage);
+  const ordered = planned.filter((i) => i.stage === "ordered");
+  const curious = planned.filter((i) => i.stage === "interested");
+  if (owned.length)
+    lines.push(`Owned but not started yet: ${owned.map((i) => i.name).join(", ")}.`);
+  if (ordered.length)
+    lines.push(
+      `Ordered, arriving soon: ${ordered.map((i) => `${i.name}${i.arrivesOn ? ` (~${i.arrivesOn})` : ""}`).join(", ")}.`,
+    );
+  if (curious.length)
+    lines.push(`Considering: ${curious.map((i) => i.name).join(", ")}. Is it a good idea for me?`);
   if (avg.count) {
     lines.push(
       "",

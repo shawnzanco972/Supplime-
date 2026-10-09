@@ -78,6 +78,9 @@ export type NewItem = {
   units?: number;
   /** Owned but not started yet. */
   planned?: boolean;
+  /** Not owned yet: just interested, or ordered and on its way. */
+  stage?: StackItem["stage"];
+  arrivesOn?: string;
   /** Already taking it since `startedAt`: how consistently. */
   backfill?: BackfillPattern;
   /** Pills left in the current bottle, if not full. */
@@ -188,6 +191,13 @@ type SupplimeStore = PersistedData & {
   /** Start any dose changes whose day has come. */
   applyPendingDoses: (today?: string) => void;
   cancelPendingDose: (itemId: string) => void;
+  /** Interested → ordered → arrived (in the cabinet, not started). */
+  setStage: (itemId: string, stage: StackItem["stage"] | null, arrivesOn?: string) => void;
+  /** A different bottle for something you already take (keeps its history). */
+  switchBottle: (
+    itemId: string,
+    to: { product: ItemProduct; units: number; bottle: number; startOn: string },
+  ) => void;
   setDay: (date: string, patch: Partial<Omit<DayContext, "date">>) => void;
   revealFact: (factId: string, date?: string) => void;
   setRhythm: (rhythm: Rhythm) => void;
@@ -238,7 +248,9 @@ function newItem(input: NewItem): StackItem | null {
     source: input.source,
     servingLabel: input.servingLabel,
     product: input.product,
-    planned: input.planned || undefined,
+    planned: input.planned || input.stage ? true : undefined,
+    stage: input.stage,
+    arrivesOn: input.stage === "ordered" ? input.arrivesOn : undefined,
   };
 }
 
@@ -339,6 +351,17 @@ export function defaultStart(logs: DoseLog[], itemId: string, today: string) {
 
 /** Put a dose change into effect on `date` (new step, new pill count, maybe a new bottle). */
 function startDose(item: StackItem, p: PendingDose, date: string): StackItem {
+  // Same strength, new bottle: no new dose step, just the new pills.
+  if (p.product && Math.abs(p.amount - item.amount) < 1e-9) {
+    return {
+      ...item,
+      product: p.product,
+      servingLabel: undefined,
+      servingsPerDose: p.units,
+      servingsRemaining: p.bottle ?? item.servingsRemaining,
+      servingsPerContainer: p.bottle ?? item.servingsPerContainer,
+    };
+  }
   if (p.product) {
     const next = applyDoseChange(
       { ...item, product: p.product, servingLabel: undefined },
@@ -456,6 +479,8 @@ export const useSupplime = create<SupplimeStore>()(
           mapItem(id, (item) => ({
             ...item,
             planned: undefined,
+            stage: undefined,
+            arrivesOn: undefined,
             startedAt: today,
             doseHistory: [{ date: today, amount: item.amount, unit: item.unit }],
           }));
@@ -792,6 +817,32 @@ export const useSupplime = create<SupplimeStore>()(
             ),
           });
         },
+        setStage: (itemId, stage, arrivesOn) => {
+          mapItem(itemId, (i) => ({
+            ...i,
+            stage: stage ?? undefined,
+            arrivesOn: stage === "ordered" ? arrivesOn : undefined,
+            planned: true,
+          }));
+        },
+
+        switchBottle: (itemId, to) => {
+          const today = appToday();
+          const item = get().stack.find((i) => i.id === itemId);
+          if (!item) return;
+          const amount = Math.round(to.units * to.product.dosePerUnit * 1000) / 1000;
+          const pending: PendingDose = {
+            date: to.startOn,
+            kind: amount >= item.amount ? "step-up" : "lower",
+            amount,
+            units: to.units,
+            product: to.product,
+            bottle: to.bottle,
+          };
+          if (to.startOn > today) mapItem(itemId, (i) => ({ ...i, pendingDose: pending }));
+          else mapItem(itemId, (i) => startDose({ ...i, pendingDose: undefined }, pending, today));
+        },
+
         cancelPendingDose: (itemId) => {
           const state = get();
           const today = appToday();

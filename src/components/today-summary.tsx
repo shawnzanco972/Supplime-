@@ -59,7 +59,7 @@ export function TodaySummary({
       <div className="flex items-center gap-4">
         <Ring pct={pct} label={`${taken}/${total}`} />
         <div className="min-w-0 flex-1">
-          <p className="font-display text-xl leading-tight tracking-tight">
+          <p className="text-lg leading-tight font-semibold">
             {total === 0
               ? "Nothing scheduled today"
               : taken === total
@@ -104,7 +104,10 @@ export function TodaySummary({
       )}
 
       <div className="mt-3 grid grid-cols-3 gap-2 text-center">
-        <Stat value={`Day ${daysBetween(since, date) + 1}`} label={`since ${formatShortDate(since)}`} />
+        <Stat
+          value={`Day ${daysBetween(since, date) + 1}`}
+          label={`since ${formatShortDate(since)}`}
+        />
         <Stat
           value={month.scheduled ? `${Math.round(month.rate * 100)}%` : "—"}
           label="last 30 days"
@@ -195,7 +198,11 @@ function WakeSheet({
     { label: "2 h ago", m: wrap(nowMin - 120) },
   ];
   return (
-    <Sheet onClose={onClose} title="When did you get up?" description={`Usually ${formatClock(usual)}.`}>
+    <Sheet
+      onClose={onClose}
+      title="When did you get up?"
+      description={`Usually ${formatClock(usual)}.`}
+    >
       <div className="space-y-4">
         {watch && (
           <Button
@@ -253,7 +260,7 @@ function fmtShift(m: number) {
 function Stat({ value, label }: { value: string; label: string }) {
   return (
     <div className="rounded-xl bg-secondary px-2 py-2">
-      <p className="font-display text-lg leading-tight tabular-nums">{value}</p>
+      <p className="text-base leading-tight font-semibold tabular-nums">{value}</p>
       <p className="text-[11px] text-muted-foreground">{label}</p>
     </div>
   );
@@ -305,14 +312,14 @@ export function DoseDayCards({ date, stack }: { date: string; stack: StackItem[]
             className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-primary to-primary/80 p-5 text-primary-foreground animate-in fade-in-0 zoom-in-95"
           >
             <Sparkles className="absolute -top-2 -right-2 size-20 opacity-15" />
-            <p className="text-xs font-medium tracking-[0.16em] uppercase opacity-80">
+            <p className="text-xs font-medium opacity-80">
               {up ? "Dose-up day" : "New dose today"}
             </p>
             <p className="mt-1 font-display text-2xl tracking-tight">{i.name}</p>
             <p className="mt-1 text-sm opacity-90">
-              {prev.amount} → <span className="font-semibold">{doseLabel(i, i.amount)}</span>{" "}
-              from today. Day 1 of a new step: check in over the next weeks so you can tell whether
-              the {up ? "extra" : "lower"} dose matters.
+              {prev.amount} → <span className="font-semibold">{doseLabel(i, i.amount)}</span> from
+              today. Day 1 of a new step: check in over the next weeks so you can tell whether the{" "}
+              {up ? "extra" : "lower"} dose matters.
             </p>
           </section>
         );

@@ -154,9 +154,7 @@ export function AppFrame() {
   if (!hydrated) {
     return (
       <div className="flex min-h-dvh flex-col justify-end px-6 py-16">
-        <p className="text-xs font-medium tracking-[0.18em] text-muted-foreground uppercase">
-          Supplime
-        </p>
+        <p className="text-xs font-medium text-muted-foreground">Supplime</p>
         <h1 className="mt-4 font-display text-4xl tracking-tight">Your stack, on time.</h1>
       </div>
     );
