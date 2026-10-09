@@ -181,6 +181,12 @@ describe("journey and verdicts", () => {
     const id = byCat("lions-mane").id;
     s().updateItem(id, { startedAt: addDays(TODAY, -29) });
     for (let i = 0; i < 30; i += 3) s().logDose(id, "breakfast", "taken", addDays(TODAY, -i));
+    // A third of the days: not on track, and the clock only counts days taken.
+    expect(journey().recommendation.title).toBe("Not on track");
+    expect(journey().phase).toBe("offtrack");
+    expect(journey().day).toBeLessThan(15);
+    for (let i = 1; i < 30; i += 3) s().logDose(id, "breakfast", "taken", addDays(TODAY, -i));
+    // Two thirds: on track, but still not a fair test.
     expect(journey().recommendation.title).toBe("Not a fair test yet");
   });
 
@@ -940,5 +946,48 @@ describe("v3.5: bottles, orders and short links", () => {
     setup(["l-theanine"]);
     const notes = fitCheck("l-theanine", { stack: s().stack, today: TODAY });
     expect(notes[0]?.tone).toBe("warn");
+  });
+});
+
+describe("v3.6: only days you take it count", () => {
+  const omegaBarelyTaken = () => {
+    setup(["omega-3"]);
+    const id = byCat("omega-3").id;
+    s().updateItem(id, { startedAt: addDays(TODAY, -38), doseHistory: [{ date: addDays(TODAY, -38), amount: 600, unit: "mg" }] });
+    const slot = byCat("omega-3").slots[0]!;
+    for (let i = 38; i > 33; i--) s().logDose(id, slot, "taken", addDays(TODAY, -i));
+    return id;
+  };
+
+  it("runs the clock on days taken, not calendar days", () => {
+    omegaBarelyTaken();
+    const j = journeyFor({ item: byCat("omega-3"), logs: s().logs, effects: s().effects, decisions: s().decisions, today: TODAY });
+    expect(j.calendarDay).toBe(39);
+    expect(j.day).toBe(6); // 5 taken + today, still open
+    expect(j.phase).toBe("offtrack");
+    expect(j.recommendation.title).toBe("Not on track");
+    const typical = j.milestones.find((m) => m.key === "typical")!;
+    expect(typical.reached).toBe(false);
+    expect(typical.date > TODAY).toBe(true);
+  });
+
+  it("gets no credit for changes in your numbers", () => {
+    omegaBarelyTaken();
+    const body = Array.from({ length: 60 }, (_, i) => ({
+      date: addDays(TODAY, i - 55),
+      sleepHours: i < 17 ? 6.5 : 7.5,
+      source: "fitbit" as const,
+    }));
+    const item = byCat("omega-3");
+    expect(beforeAfter(item, body, TODAY).length).toBeGreaterThan(0);
+    expect(beforeAfter(item, body, TODAY, s().logs)).toEqual([]);
+  });
+
+  it("starting over gives a fresh, fair clock", () => {
+    const id = omegaBarelyTaken();
+    s().updateItem(id, { startedAt: TODAY });
+    const j = journeyFor({ item: byCat("omega-3"), logs: s().logs, effects: s().effects, decisions: s().decisions, today: TODAY });
+    expect(j.day).toBe(1);
+    expect(j.offTrack).toBe(false);
   });
 });

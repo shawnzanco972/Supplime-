@@ -299,7 +299,7 @@ export function buildSchedule(now = new Date()): LocalNotificationSchema[] {
         iconColor: "#3D5A4C",
         autoCancel: true,
         title: "How was your day?",
-        body: "Rate your energy, mood and focus, and add a note or an affirmation. 10 seconds.",
+        body: "Rate your energy, mood, focus and calm, and add a note or an affirmation. 10 seconds.",
         schedule: { at: when, allowWhileIdle: true },
         extra: { date, kind: "feel" } satisfies Extra,
       });

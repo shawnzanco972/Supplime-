@@ -92,7 +92,7 @@ export type SkipImpact = {
 
 /**
  * Same supplement, your own A/B test: body signals the night after days you took it vs.
- * days you missed it (last 60 days). Needs at least 3 missed and 5 taken days with data.
+ * days you missed it (last 60 days). Needs at least 3 missed and 7 taken days with data.
  */
 export function skipImpact(
   item: StackItem,
@@ -113,7 +113,8 @@ export function skipImpact(
       if (c === "taken") taken.push(v);
       else if (c === "missed") missed.push(v);
     }
-    if (missed.length < 3 || taken.length < 5) continue;
+    // Too few nights on either side and it's just noise.
+    if (missed.length < 3 || taken.length < 7) continue;
     const avg = (a: number[]) => a.reduce((x, y) => x + y, 0) / a.length;
     const t = avg(taken);
     const m = avg(missed);

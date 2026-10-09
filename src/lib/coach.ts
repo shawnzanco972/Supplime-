@@ -46,7 +46,7 @@ export function buildCoachPrompt(state: PersistedData, today: string) {
       `- ${item.name}${item.product ? ` (${item.product.brand} ${item.product.name})` : ""}: ${fmtDose(item, item.amount)} ${item.slots.map(slotLabel).join(" + ")}. Day ${j.day}, ${j.atDose} days at this dose, consistency ${j.consistency === null ? "unknown" : `${Math.round(j.consistency * 100)}%`}. Typical onset ~day ${p.typicalDay}.`,
       `  Check-ins: ${checkIns || "none yet"}. Side effects: ${symptoms.length ? symptoms.join(", ") : "none reported"}.`,
     );
-    for (const d of beforeAfter(item, body, today)) {
+    for (const d of beforeAfter(item, body, today, logs)) {
       lines.push(`  Wearable ${d.metric}: ${d.before} before → ${d.after} since starting.`);
     }
   }

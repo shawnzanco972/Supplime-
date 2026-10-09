@@ -127,14 +127,14 @@ export function BodyView() {
                 type="button"
                 onClick={() => setMetricKey(m.key)}
                 className={cn(
-                  "rounded-xl bg-card px-2 py-3 text-center shadow-[var(--shadow-border)]",
+                  "flex min-h-24 flex-col items-center justify-center rounded-xl bg-card px-2 py-3 text-center shadow-[var(--shadow-border)]",
                   metric.key === m.key && "ring-2 ring-primary",
                 )}
               >
-                <p className="text-lg font-semibold tabular-nums">{show(m, v)}</p>
-                <p className="mt-0.5 text-[11px] text-muted-foreground">
-                  {m.label}
-                  {date !== today ? ` · ${formatShortDate(date)}` : ""}
+                <p className="text-lg leading-tight font-semibold tabular-nums">{show(m, v)}</p>
+                <p className="mt-1 text-xs text-muted-foreground">{m.label}</p>
+                <p className="h-4 text-[10px] text-muted-foreground">
+                  {date !== today ? formatShortDate(date) : ""}
                 </p>
               </button>
             ))}
@@ -145,74 +145,82 @@ export function BodyView() {
         </section>
       )}
 
-      <section className="rounded-2xl bg-card p-4 shadow-[var(--shadow-border)]">
-        <div className="flex flex-wrap gap-1.5">
-          <p className="mr-1 self-center text-xs font-medium text-muted-foreground">Vitals</p>
-          {(available.length ? available : METRICS.slice(0, 1)).map((m) => (
-            <Chip key={m.key} on={m.key === metric.key} onClick={() => setMetricKey(m.key)}>
-              {m.label}
-            </Chip>
-          ))}
-        </div>
-        <div className="mt-3 flex items-baseline justify-between gap-2">
-          <p className="font-medium">{metric.label}, 30 days</p>
-          {last7 !== null && (
-            <p className="text-xs text-muted-foreground">
-              7-day avg <span className="font-medium text-foreground">{show(metric, last7)}</span>
-              {prev7 !== null && <Trend now={last7} before={prev7} metric={metric} />}
+      <section>
+        <h2 className="mb-2 font-display text-xl tracking-tight">Vitals</h2>
+        <div className="rounded-2xl bg-card p-4 shadow-[var(--shadow-border)]">
+          <div className="grid grid-cols-3 gap-1.5">
+            {(available.length ? available : METRICS.slice(0, 1)).map((m) => (
+              <Chip
+                key={m.key}
+                on={m.key === metric.key}
+                onClick={() => setMetricKey(m.key)}
+                className="w-full px-2"
+              >
+                {m.label}
+              </Chip>
+            ))}
+          </div>
+          <div className="mt-3 flex items-baseline justify-between gap-2">
+            <p className="font-medium">{metric.label}, 30 days</p>
+            {last7 !== null && (
+              <p className="text-xs text-muted-foreground">
+                7-day avg <span className="font-medium text-foreground">{show(metric, last7)}</span>
+                {prev7 !== null && <Trend now={last7} before={prev7} metric={metric} />}
+              </p>
+            )}
+          </div>
+          <div className="mt-2 h-44">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={chart} margin={{ top: 8, right: 4, left: 4, bottom: 0 }}>
+                <XAxis
+                  dataKey="label"
+                  tick={{ fontSize: 10 }}
+                  interval={6}
+                  axisLine={false}
+                  tickLine={false}
+                />
+                <YAxis hide domain={["auto", "auto"]} />
+                <Tooltip
+                  formatter={(v) => (typeof v === "number" ? show(metric, v) : v)}
+                  contentStyle={{
+                    background: "#fbfaf6",
+                    border: "1px solid #ddd6c8",
+                    borderRadius: 12,
+                    fontSize: 12,
+                  }}
+                />
+                {markers.map((m) => (
+                  <ReferenceLine
+                    key={`${m.date}-${m.text}`}
+                    x={formatShortDate(m.date)}
+                    stroke="#b7791f"
+                    strokeDasharray="3 3"
+                  />
+                ))}
+                <Line
+                  type="monotone"
+                  dataKey="v"
+                  name={metric.label}
+                  stroke="#3d5a4c"
+                  strokeWidth={2}
+                  dot={{ r: 2 }}
+                  connectNulls
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+          {markers.length > 0 && (
+            <p className="mt-1 text-xs text-muted-foreground">
+              Dashed lines:{" "}
+              {markers.map((m) => `${m.text} (${formatShortDate(m.date)})`).join(" · ")}
+            </p>
+          )}
+          {available.length === 0 && (
+            <p className="mt-1 text-xs text-muted-foreground">
+              Connect Fitbit / Google Health above to fill this in.
             </p>
           )}
         </div>
-        <div className="mt-2 h-44">
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={chart} margin={{ top: 8, right: 4, left: 4, bottom: 0 }}>
-              <XAxis
-                dataKey="label"
-                tick={{ fontSize: 10 }}
-                interval={6}
-                axisLine={false}
-                tickLine={false}
-              />
-              <YAxis hide domain={["auto", "auto"]} />
-              <Tooltip
-                formatter={(v) => (typeof v === "number" ? show(metric, v) : v)}
-                contentStyle={{
-                  background: "#fbfaf6",
-                  border: "1px solid #ddd6c8",
-                  borderRadius: 12,
-                  fontSize: 12,
-                }}
-              />
-              {markers.map((m) => (
-                <ReferenceLine
-                  key={`${m.date}-${m.text}`}
-                  x={formatShortDate(m.date)}
-                  stroke="#b7791f"
-                  strokeDasharray="3 3"
-                />
-              ))}
-              <Line
-                type="monotone"
-                dataKey="v"
-                name={metric.label}
-                stroke="#3d5a4c"
-                strokeWidth={2}
-                dot={{ r: 2 }}
-                connectNulls
-              />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
-        {markers.length > 0 && (
-          <p className="mt-1 text-xs text-muted-foreground">
-            Dashed lines: {markers.map((m) => `${m.text} (${formatShortDate(m.date)})`).join(" · ")}
-          </p>
-        )}
-        {available.length === 0 && (
-          <p className="mt-1 text-xs text-muted-foreground">
-            Connect Fitbit / Google Health above to fill this in.
-          </p>
-        )}
       </section>
 
       <FeelSection today={today} body={body} existing={byDate.get(today)} />
@@ -238,6 +246,7 @@ const FEEL = [
   { key: "energy", label: "Energy", color: "#3d5a4c" },
   { key: "mood", label: "Mood", color: "#b7791f" },
   { key: "focus", label: "Focus", color: "#6b7fa6" },
+  { key: "calm", label: "Calm", color: "#9a6b8f" },
 ] as const;
 
 /** How you feel, tracked on its own: today's rating and note, a 30-day chart, your notes. */
@@ -254,6 +263,7 @@ function FeelSection({
   const [energy, setEnergy] = useState(existing?.energy ?? 3);
   const [mood, setMood] = useState(existing?.mood ?? 3);
   const [focus, setFocus] = useState(existing?.focus ?? 3);
+  const [calm, setCalm] = useState(existing?.calm ?? 3);
   const [notes, setNotes] = useState(existing?.notes ?? "");
   const rated = body.filter((b) => typeof b.energy === "number" || typeof b.mood === "number");
   const chart = Array.from({ length: 30 }, (_, i) => {
@@ -264,6 +274,7 @@ function FeelSection({
       energy: b?.energy ?? null,
       mood: b?.mood ?? null,
       focus: b?.focus ?? null,
+      calm: b?.calm ?? null,
     };
   });
   const journal = [...body]
@@ -283,6 +294,12 @@ function FeelSection({
         <SliderRow label="Energy" value={energy} onChange={setEnergy} />
         <SliderRow label="Mood" value={mood} onChange={setMood} />
         <SliderRow label="Focus" value={focus} onChange={setFocus} />
+        <SliderRow
+          label="Calm"
+          hint="1 = very stressed · 5 = calm"
+          value={calm}
+          onChange={setCalm}
+        />
         <div>
           <Label htmlFor="notes">Note of the day, or an affirmation</Label>
           <Textarea
@@ -302,6 +319,7 @@ function FeelSection({
               energy,
               mood,
               focus,
+              calm,
               notes: notes.trim() || undefined,
             });
             toast(existing?.energy ? "Updated" : "Saved");
@@ -313,7 +331,7 @@ function FeelSection({
 
       {rated.length > 0 && (
         <div className="rounded-2xl bg-card p-4 shadow-[var(--shadow-border)]">
-          <p className="font-medium">Energy, mood and focus, 30 days</p>
+          <p className="font-medium">Energy, mood, focus and calm, 30 days</p>
           <div className="mt-2 h-40">
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={chart} margin={{ top: 8, right: 4, left: 4, bottom: 0 }}>
@@ -368,7 +386,7 @@ function FeelSection({
                 <p className="text-xs text-muted-foreground">
                   {formatShortDate(b.date)}
                   {typeof b.energy === "number"
-                    ? ` · energy ${b.energy} · mood ${b.mood ?? "–"} · focus ${b.focus ?? "–"}`
+                    ? ` · energy ${b.energy} · mood ${b.mood ?? "–"} · focus ${b.focus ?? "–"}${typeof b.calm === "number" ? ` · calm ${b.calm}` : ""}`
                     : ""}
                 </p>
                 <p className="mt-0.5 text-sm">{b.notes}</p>
@@ -480,10 +498,12 @@ function ManualNumbers({
 
 function SliderRow({
   label,
+  hint,
   value,
   onChange,
 }: {
   label: string;
+  hint?: string;
   value: number;
   onChange: (v: number) => void;
 }) {
@@ -493,6 +513,7 @@ function SliderRow({
         <Label>{label}</Label>
         <span className="tabular-nums text-muted-foreground">{value}/5</span>
       </div>
+      {hint && <p className="mb-1 text-xs text-muted-foreground">{hint}</p>}
       <Slider min={1} max={5} step={1} value={[value]} onValueChange={(x) => onChange(x[0] ?? 3)} />
     </div>
   );

@@ -300,7 +300,7 @@ export function todaysQuests(state: State & { profile: Profile }, today = todayK
       }),
     )
     .find((j) => j.evaluateDue);
-  const checkIn = active.find((item) => needsCheckIn(item, state.effects, today));
+  const checkIn = active.find((item) => needsCheckIn(item, state.effects, today, state.logs));
   const safety = active.find((item) => safetyDue(item, state.checks ?? [], today));
   const checkedToday = state.effects.find((e) => e.date === today);
   if (due) {
@@ -343,7 +343,7 @@ export function todaysQuests(state: State & { profile: Profile }, today = todayK
     quests.push({
       id: "body",
       title: "Log how you feel today",
-      detail: "Energy, mood, focus, sleep — 20 seconds.",
+      detail: "Energy, mood, focus, calm — 20 seconds.",
       xp: XP.bodyLog,
       done: body,
       action: { kind: "body" },

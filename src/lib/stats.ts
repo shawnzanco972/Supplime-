@@ -69,8 +69,24 @@ export const EFFECT_COPY = ["Nothing yet", "Maybe", "Noticeable", "Clear effect"
  * Should Supplime ask "do you feel it?" today? Yes once you are near the onset window
  * and you have not checked in for this item in the last few days.
  */
-export function needsCheckIn(item: StackItem, effects: EffectLog[], today = todayKey()) {
+export function needsCheckIn(
+  item: StackItem,
+  effects: EffectLog[],
+  today = todayKey(),
+  logs?: DoseLog[],
+) {
   if (item.paused || item.archived || item.planned) return false;
+  // Not asking "is it working?" about something you've barely taken lately.
+  if (logs) {
+    const mine = logs.filter((l) => l.itemId === item.id);
+    const first = mine.map((l) => l.date).sort()[0];
+    if (first) {
+      const from = addDays(today, -13) > first ? addDays(today, -13) : first;
+      const taken = new Set(mine.filter((l) => l.status === "taken" && l.date >= from).map((l) => l.date));
+      const days = daysBetween(from, today) + 1;
+      if (days >= 5 && taken.size / days < 0.5) return false;
+    }
+  }
   const w = effectWindow(item, today);
   const near = w.kind === "acute" ? w.elapsed >= 2 : w.elapsed >= Math.max(3, w.onsetMin - 2);
   if (!near) return false;

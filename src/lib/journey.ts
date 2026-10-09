@@ -17,6 +17,7 @@ export type Milestone = {
 };
 
 export type Phase =
+  | "offtrack"
   | "building"
   | "window"
   | "working"
@@ -37,6 +38,32 @@ export type Recommendation = {
 export type Journey = ReturnType<typeof journeyFor>;
 
 /**
+ * The supplement's own clock: days you actually took it. Missed and away days don't move it
+ * (a day you didn't take something doesn't build anything up). Days before you started
+ * logging count as taken, and today counts while it's still open.
+ */
+export function effectiveClock(item: StackItem, logs: DoseLog[], from: string, today: string) {
+  const mine = logs.filter((l) => l.itemId === item.id);
+  const taken = new Set(mine.filter((l) => l.status === "taken").map((l) => l.date));
+  const resolved = new Set(
+    mine.filter((l) => l.status === "skipped" || l.status === "missed").map((l) => l.date),
+  );
+  const firstLog = mine.map((l) => l.date).sort()[0];
+  const reached: string[] = [];
+  let n = 0;
+  for (let d = from; d <= today; d = addDays(d, 1)) {
+    const counts =
+      !firstLog || d < firstLog || taken.has(d) || (d === today && !resolved.has(d));
+    if (counts) reached[++n] = d;
+  }
+  return {
+    days: n,
+    /** The date you reached (or, taking it daily from now, will reach) day `k`. */
+    dateOf: (k: number) => (k <= n ? (reached[Math.max(1, k)] ?? from) : addDays(today, k - n)),
+  };
+}
+
+/**
  * The full "how long" picture for one supplement: where you are on its timeline,
  * what comes next, whether it is time to change the dose or decide if it is worth
  * keeping, and what Supplime would recommend.
@@ -51,10 +78,15 @@ export function journeyFor(input: {
   const { item, logs, effects, decisions } = input;
   const today = input.today ?? todayKey();
   const p = profileFor(item);
-  const day = daysOn(item, today);
-  const atDose = daysAtDose(item, today);
   const step = currentStep(item);
   const stepStart = step.date > item.startedAt ? step.date : item.startedAt;
+  // Everything runs on days you actually took it, not calendar days.
+  const calendarDay = daysOn(item, today);
+  const clock = effectiveClock(item, logs, item.startedAt, today);
+  const doseClock = effectiveClock(item, logs, stepStart, today);
+  const day = Math.max(1, clock.days);
+  const atDose = Math.max(item.startedAt < today ? 1 : 0, doseClock.days);
+  const calendarAtDose = daysAtDose(item, today);
   const stepStartDay = daysBetween(item.startedAt, stepStart) + 1;
 
   // How consistently you took it at the current dose (since you started logging it).
@@ -87,7 +119,7 @@ export function journeyFor(input: {
   const lastDecision = itemDecisions.at(-1);
 
   // When is the next "keep or not" verdict due?
-  const baseEval = addDays(item.startedAt, p.evaluateDay - 1);
+  const baseEval = clock.dateOf(p.evaluateDay);
   let nextEval = baseEval;
   if (lastDecision) {
     const wait =
@@ -101,9 +133,9 @@ export function journeyFor(input: {
     const after = addDays(lastDecision.date, wait);
     nextEval = after > baseEval ? after : baseEval;
   }
-  const doseReviewDate = addDays(stepStart, p.minDaysBeforeIncrease - 1);
+  const doseReviewDate = doseClock.dateOf(p.minDaysBeforeIncrease);
   const evaluateDue = !item.archived && today >= nextEval;
-  const doseReviewOpen = today >= doseReviewDate;
+  const doseReviewOpen = atDose >= p.minDaysBeforeIncrease;
   // You already decided and the next check isn't due: no nagging, no repeat verdicts.
   const holding =
     !!lastDecision &&
@@ -115,7 +147,14 @@ export function journeyFor(input: {
     step.date === today && item.doseHistory.length > 1 && item.startedAt < today;
   const previousStep = changedToday ? item.doseHistory.at(-2) : undefined;
 
-  const dateOf = (d: number) => addDays(item.startedAt, d - 1);
+  const dateOf = (d: number) => clock.dateOf(d);
+  // Effective day numbers for calendar dates (past: as counted; future: daily from now).
+  const effDayOn = (date: string) =>
+    date > today
+      ? day + daysBetween(today, date)
+      : Math.max(1, effectiveClock(item, logs, item.startedAt, date).days);
+  const stepStartEff =
+    stepStart > item.startedAt ? effectiveClock(item, logs, item.startedAt, addDays(stepStart, -1)).days : 0;
   const milestones: Milestone[] = [
     {
       key: "start",
@@ -146,7 +185,7 @@ export function journeyFor(input: {
     },
     {
       key: "dose-review",
-      day: stepStartDay + p.minDaysBeforeIncrease - 1,
+      day: stepStartEff + p.minDaysBeforeIncrease,
       date: doseReviewDate,
       label: "Dose change unlocks",
       detail: `Give each dose at least ${p.minDaysBeforeIncrease} days before changing it`,
@@ -154,7 +193,7 @@ export function journeyFor(input: {
     },
     {
       key: "evaluate",
-      day: daysBetween(item.startedAt, nextEval) + 1,
+      day: effDayOn(nextEval),
       date: nextEval,
       label: lastDecision ? "Next check" : "Verdict day",
       detail: "Decide: keep, adjust the dose, or stop",
@@ -165,8 +204,11 @@ export function journeyFor(input: {
   const next = milestones.find((m) => !m.reached) ?? null;
 
   const working = !!last && last.rating >= 2 && !recentSide;
+  // Taken on fewer than half the days: nothing about it can be judged yet.
+  const offTrack = consistency !== null && trackedDays >= 7 && consistency < 0.5;
   let phase: Phase;
   if (item.archived) phase = "stopped";
+  else if (offTrack && !item.pendingDose) phase = "offtrack";
   else if (evaluateDue) phase = "evaluate";
   else if (holding || changedToday || item.pendingDose) phase = "holding";
   else if (working) phase = "working";
@@ -175,7 +217,13 @@ export function journeyFor(input: {
   else phase = "building";
 
   const pd = item.pendingDose;
-  const recommendation: Recommendation = pd
+  const recommendation: Recommendation = offTrack && !pd
+    ? {
+        kind: "more-time",
+        title: "Not on track",
+        why: `Taken on ${takenDates.size} of ${trackedDays} days, so its clock is at day ${day}, not day ${calendarDay}. Nothing can be judged until you take it most days${lastDecision?.kind === "more-time" ? ": the extra time you gave it only counts on days you take it" : ""}.`,
+      }
+    : pd
     ? {
         kind: "keep",
         title: `${pd.kind === "step-up" ? "Stepping up" : "Lowering"} to ${trimNum(pd.amount)} ${item.unit} on ${formatShortDate(pd.date)}`,
@@ -243,6 +291,11 @@ export function journeyFor(input: {
     previousStep,
     missedDays,
     awayDays: awayDates.size,
+    calendarDay,
+    calendarAtDose,
+    /** Calendar days that didn't count (missed or away). */
+    behind: Math.max(0, calendarDay - day),
+    offTrack,
     /** 0–1 position on the timeline to the verdict day, for progress bars. */
     progress: Math.min(1, day / Math.max(p.evaluateDay, daysBetween(item.startedAt, nextEval) + 1)),
   };
@@ -406,6 +459,7 @@ export const PHASE_COPY: Record<
   working: { label: "Working", tone: "good" },
   review: { label: "Dose review open", tone: "warn" },
   evaluate: { label: "Verdict due", tone: "warn" },
+  offtrack: { label: "Not on track", tone: "warn" },
   holding: { label: "Decided", tone: "good" },
   stopped: { label: "Stopped", tone: "muted" },
 };

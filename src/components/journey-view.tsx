@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Sheet } from "@/components/ui/screen";
 import { Textarea } from "@/components/ui/textarea";
-import { advise, beforeAfter, fmtDose } from "@/lib/advisor";
+import { adherenceSince, advise, beforeAfter, fmtDose } from "@/lib/advisor";
 import { dayGrid, METRIC_COPY, skipImpact, type Cell } from "@/lib/insights";
 import { askGemini, askGrok, buildCoachPrompt, shareToAssistant } from "@/lib/coach";
 import { iconFor, UseTags } from "@/components/product-picker";
@@ -270,7 +270,7 @@ export function JourneyCard({
 }) {
   const body = useSupplime((s) => s.body);
   const logs = useSupplime((s) => s.logs);
-  const deltas = beforeAfter(j.item, body, appToday());
+  const deltas = beforeAfter(j.item, body, appToday(), logs);
   const impact = skipImpact(j.item, logs, body, appToday());
   const phase = PHASE_COPY[j.phase];
   const span = Math.max(...j.milestones.map((m) => m.day), j.day, j.felt?.day ?? 0) * 1.05;
@@ -285,7 +285,9 @@ export function JourneyCard({
             <p className="font-medium underline-offset-2 hover:underline">{j.item.name}</p>
             <UseTags catalogId={j.item.catalogId} className="my-1" />
             <p className="text-xs text-muted-foreground">
-              Day {j.day} · {j.takenDays} taken
+              Day {j.day}
+              {j.behind > 2 ? ` of its clock (${j.calendarDay} on the calendar)` : ""} ·{" "}
+              {j.takenDays} taken
               {j.consistency !== null ? ` (${Math.round(j.consistency * 100)}%)` : ""} · {j.atDose}d
               at {doseLabel(j.item, j.item.amount)}
               {j.item.slots.length > 1 ? ` ×${j.item.slots.length}/day` : ""}
@@ -320,6 +322,13 @@ export function JourneyCard({
             className="absolute inset-y-0 left-0 rounded-full bg-primary/75"
             style={{ width: pct(j.day) }}
           />
+          {j.behind > 2 && (
+            <span
+              className="absolute -top-1 -bottom-1 w-0.5 -translate-x-1/2 rounded bg-warn"
+              style={{ left: pct(j.calendarDay) }}
+              title={`The calendar: day ${j.calendarDay}`}
+            />
+          )}
           {j.milestones
             .filter((m) => m.key !== "start")
             .map((m) => (
@@ -375,14 +384,14 @@ export function JourneyCard({
             · {formatShortDate(j.next.date)}
           </p>
         )}
-        {j.missedDays > 0 && p.kind !== "acute" && !j.felt && (
-          <p className="mt-1 text-xs text-muted-foreground">
-            {j.missedDays} missed day{j.missedDays === 1 ? "" : "s"} at this dose: expect it about{" "}
-            {j.missedDays} day{j.missedDays === 1 ? "" : "s"} later than usual. It builds up with
-            the days you actually take it.
-            {j.awayDays > 0 ? ` (${j.awayDays} days away count as a pause.)` : ""}
+        {j.behind > 0 && !j.felt && (
+          <p className={cn("mt-1 text-xs", j.offTrack ? "text-warn" : "text-muted-foreground")}>
+            {j.behind} day{j.behind === 1 ? "" : "s"} didn't count (missed
+            {j.awayDays > 0 ? " or away" : ""}), so every step above moved later by that much. It
+            only builds up on the days you take it.
           </p>
         )}
+        {j.offTrack && <StartOver item={j.item} />}
         {impact.length > 0 && (
           <div className="mt-2 space-y-1">
             {impact.map((x) => (
@@ -452,6 +461,46 @@ export function JourneyCard({
           {j.evaluateDue ? "Verdict" : "Review"}
         </Button>
       </div>
+    </div>
+  );
+}
+
+/** Barely taken so far: restart its clock from today instead of carrying the gaps. */
+function StartOver({ item }: { item: StackItem }) {
+  const updateItem = useSupplime((s) => s.updateItem);
+  const [ask, setAsk] = useState(false);
+  return (
+    <div className="mt-2">
+      {ask ? (
+        <div className="space-y-2 rounded-xl bg-secondary p-3 text-sm">
+          <p>
+            Start {item.name}'s timeline again from today? Your logged days stay in History; the
+            clock, milestones and verdict start fresh.
+          </p>
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              onClick={() => {
+                updateItem(item.id, { startedAt: appToday() });
+                toast(`${item.name}: day 1 again`, { description: "A fresh, fair test from today." });
+              }}
+            >
+              Start over today
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setAsk(false)}>
+              Keep it
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setAsk(true)}
+          className="min-h-9 text-xs font-medium text-primary underline underline-offset-2"
+        >
+          Didn't really start yet? Start over from today
+        </button>
+      )}
     </div>
   );
 }
@@ -578,7 +627,13 @@ export function EvaluateSheet({ itemId }: { itemId: string }) {
           : "Already at the lowest usual dose.",
       disabled: !(down || swapDown),
     },
-    { kind: "more-time", label: "Give it 2 more weeks", detail: "Not enough to judge yet." },
+    {
+      kind: "more-time",
+      label: "Give it more time",
+      detail: j.offTrack
+        ? "Only days you take it count, so take it daily from now."
+        : "Supplime checks again in 2 weeks.",
+    },
     { kind: "stop", label: "Stop", detail: "Keep the record as a finished experiment." },
   ];
   const tomorrow = addDays(today, 1);
@@ -1155,8 +1210,11 @@ function Findings() {
   const today = appToday();
   // Supplements started within a week of each other share one before/after: there's no
   // way to tell which of them moved your numbers, so say so once instead of repeating it.
+  // Only what you actually took gets credit for changes in your numbers.
+  const adherence = (i: StackItem) => adherenceSince(i, logs, i.startedAt, today);
+  const skipped = stack.filter((i) => !i.planned && !i.archived && (adherence(i) ?? 1) < 0.6);
   const started = stack
-    .filter((i) => !i.planned)
+    .filter((i) => !i.planned && !skipped.includes(i))
     .sort((a, b) => a.startedAt.localeCompare(b.startedAt));
   const groups: StackItem[][] = [];
   for (const item of started) {
@@ -1200,6 +1258,15 @@ function Findings() {
       <p className="mt-1 text-sm text-muted-foreground">
         What you've learned about your own body — the real point of every experiment.
       </p>
+      {skipped.length > 0 && (
+        <p className="mt-2 text-xs text-muted-foreground">
+          Not counted:{" "}
+          {skipped
+            .map((i) => `${i.name} (taken on ${Math.round((adherence(i) ?? 0) * 100)}% of days)`)
+            .join(", ")}
+          . A supplement only gets credit for changes once you take it most days.
+        </p>
+      )}
       {cards.length ? (
         <div className="mt-3 space-y-3">
           {cards.map(({ g, first, deltas, notes }) => (

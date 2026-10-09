@@ -198,7 +198,7 @@ export function SettingsScreen() {
             <div>
               <Label htmlFor="feel">Evening check-in</Label>
               <p className="mt-1 text-xs text-muted-foreground">
-                "How was your day?": energy, mood, focus and a note.
+                "How was your day?": energy, mood, focus, calm and a note.
               </p>
             </div>
             <Switch

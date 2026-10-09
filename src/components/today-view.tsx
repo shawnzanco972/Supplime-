@@ -68,7 +68,7 @@ export function TodayView({ now }: { now: number }) {
   const game = useMemo(() => gameSummary(state, date), [state, date]);
   const nxt = nextSlot(plans, remaining, nowMin);
   const low = stack.filter((item) => !item.paused && !item.archived && isLowStock(item));
-  const checkIns = stack.filter((item) => needsCheckIn(item, effects, date)).slice(0, 2);
+  const checkIns = stack.filter((item) => needsCheckIn(item, effects, date, logs)).slice(0, 2);
   const safety = stack.find((item) => safetyDue(item, state.checks, date));
   const milestonesToday = milestonesReached(state, date).filter((m) => m.date === date);
   const active = stack.filter((i) => !i.archived);

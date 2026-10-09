@@ -114,7 +114,41 @@ export type Delta = {
  * Compare your wearable data in the 14 days before starting a supplement with the days
  * since its typical onset. Needs at least 4 nights on each side.
  */
-export function beforeAfter(item: StackItem, body: BodyLog[], today: string): Delta[] {
+/**
+ * Share of days you took it since `from` (null when you never logged it, so it's unknown).
+ * Away days don't count either way.
+ */
+export function adherenceSince(item: StackItem, logs: DoseLog[], from: string, today: string) {
+  const mine = logs.filter((l) => l.itemId === item.id);
+  const first = mine.map((l) => l.date).sort()[0];
+  if (!first) return null;
+  const start = first > from ? first : from;
+  const taken = new Set(mine.filter((l) => l.status === "taken").map((l) => l.date));
+  const away = new Set(mine.filter((l) => l.away).map((l) => l.date));
+  let days = 0;
+  let took = 0;
+  for (let d = start; d < today; d = addDays(d, 1)) {
+    if (away.has(d) && !taken.has(d)) continue;
+    days++;
+    if (taken.has(d)) took++;
+  }
+  return days ? took / days : null;
+}
+
+/**
+ * Wearable numbers before vs. since you started. With `logs`, a supplement you took on fewer
+ * than 60% of days gets no credit: whatever changed, it wasn't that.
+ */
+export function beforeAfter(
+  item: StackItem,
+  body: BodyLog[],
+  today: string,
+  logs?: DoseLog[],
+): Delta[] {
+  if (logs) {
+    const a = adherenceSince(item, logs, item.startedAt, today);
+    if (a !== null && a < 0.6) return [];
+  }
   const p = profileFor(item);
   const beforeFrom = addDays(item.startedAt, -14);
   const afterFrom = addDays(item.startedAt, Math.max(1, p.firstSignsDay - 1));
@@ -369,10 +403,10 @@ export function advise(state: {
         why: j.recommendation.why,
         swap: j.recommendation.swap,
       });
-    } else if (j.recommendation.title === "Not a fair test yet") {
+    } else if (j.offTrack || j.recommendation.title === "Not a fair test yet") {
       reconsider.push({
         item,
-        title: "Not a fair test yet",
+        title: j.offTrack ? "Not on track" : "Not a fair test yet",
         detail: j.recommendation.why,
         action: "check",
       });

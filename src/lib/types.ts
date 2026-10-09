@@ -281,6 +281,8 @@ export type BodyLog = {
   energy?: number;
   mood?: number;
   focus?: number;
+  /** Calm vs. stress: 1 = very stressed, 5 = calm (higher is better, like the others). */
+  calm?: number;
   notes?: string;
   source: "manual" | "fitbit";
 };
