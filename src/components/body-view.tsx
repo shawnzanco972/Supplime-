@@ -57,7 +57,9 @@ export function BodyView() {
   const sync = useSupplime((s) => s.profile.healthSync);
   const today = appToday();
   const byDate = useMemo(() => new Map(body.map((b) => [b.date, b])), [body]);
-  const available = METRICS.filter((m) => body.some((b) => num(b, m.key) !== undefined));
+  const available = METRICS.filter(
+    (m) => !m.self && body.some((b) => num(b, m.key) !== undefined),
+  );
   const [metricKey, setMetricKey] = useState<keyof BodyLog>("sleepHours");
   const metric = available.find((m) => m.key === metricKey) ?? available[0] ?? METRICS[0]!;
 
@@ -147,6 +149,9 @@ export function BodyView() {
 
       <section className="rounded-2xl bg-card p-4 shadow-[var(--shadow-border)]">
         <div className="flex flex-wrap gap-1.5">
+          <p className="mr-1 self-center text-xs font-medium tracking-wide text-muted-foreground uppercase">
+            Vitals
+          </p>
           {(available.length ? available : METRICS.slice(0, 1)).map((m) => (
             <Chip key={m.key} on={m.key === metric.key} onClick={() => setMetricKey(m.key)}>
               {m.label}
@@ -212,12 +217,12 @@ export function BodyView() {
         )}
         {available.length === 0 && (
           <p className="mt-1 text-xs text-muted-foreground">
-            Connect Fitbit / Google Health above, or rate how you feel below, to fill this in.
+            Connect Fitbit / Google Health above to fill this in.
           </p>
         )}
       </section>
 
-      <FeelToday today={today} existing={byDate.get(today)} />
+      <FeelSection today={today} body={body} existing={byDate.get(today)} />
 
       <ManualNumbers today={today} existing={byDate.get(today)} open={!sync?.enabled} />
     </div>
@@ -236,50 +241,149 @@ function Trend({ now, before, metric }: { now: number; before: number; metric: M
   );
 }
 
-/** What your watch can't measure. */
-function FeelToday({ today, existing }: { today: string; existing?: BodyLog }) {
+const FEEL = [
+  { key: "energy", label: "Energy", color: "#3d5a4c" },
+  { key: "mood", label: "Mood", color: "#b7791f" },
+  { key: "focus", label: "Focus", color: "#6b7fa6" },
+] as const;
+
+/** How you feel, tracked on its own: today's rating and note, a 30-day chart, your notes. */
+function FeelSection({
+  today,
+  body,
+  existing,
+}: {
+  today: string;
+  body: BodyLog[];
+  existing?: BodyLog;
+}) {
   const logBody = useSupplime((s) => s.logBody);
   const [energy, setEnergy] = useState(existing?.energy ?? 3);
   const [mood, setMood] = useState(existing?.mood ?? 3);
   const [focus, setFocus] = useState(existing?.focus ?? 3);
   const [notes, setNotes] = useState(existing?.notes ?? "");
+  const rated = body.filter((b) => typeof b.energy === "number" || typeof b.mood === "number");
+  const chart = Array.from({ length: 30 }, (_, i) => {
+    const date = addDays(today, i - 29);
+    const b = rated.find((r) => r.date === date);
+    return {
+      label: formatShortDate(date),
+      energy: b?.energy ?? null,
+      mood: b?.mood ?? null,
+      focus: b?.focus ?? null,
+    };
+  });
+  const journal = [...body]
+    .filter((b) => b.notes)
+    .sort((a, b) => b.date.localeCompare(a.date))
+    .slice(0, 10);
   return (
-    <section className="space-y-4 rounded-2xl bg-card p-4 shadow-[var(--shadow-border)]">
+    <section className="space-y-4">
       <div>
-        <p className="font-medium">How do you feel today?</p>
-        <p className="text-xs text-muted-foreground">
-          The one thing your watch can't measure. Ten seconds a day makes your journey sharper.
+        <h2 className="font-display text-xl tracking-tight">How you feel</h2>
+        <p className="text-sm text-muted-foreground">
+          Your own read on the day, kept apart from the watch numbers.
         </p>
       </div>
-      <SliderRow label="Energy" value={energy} onChange={setEnergy} />
-      <SliderRow label="Mood" value={mood} onChange={setMood} />
-      <SliderRow label="Focus" value={focus} onChange={setFocus} />
-      <div>
-        <Label htmlFor="notes">Note</Label>
-        <Textarea
-          id="notes"
-          className="mt-2"
-          value={notes}
-          placeholder="Slept badly, big day at work, felt sharp after lunch…"
-          onChange={(e) => setNotes(e.target.value)}
-        />
+      <div className="space-y-4 rounded-2xl bg-card p-4 shadow-[var(--shadow-border)]">
+        <p className="font-medium">{existing?.energy ? "Today (saved)" : "Today"}</p>
+        <SliderRow label="Energy" value={energy} onChange={setEnergy} />
+        <SliderRow label="Mood" value={mood} onChange={setMood} />
+        <SliderRow label="Focus" value={focus} onChange={setFocus} />
+        <div>
+          <Label htmlFor="notes">Note of the day, or an affirmation</Label>
+          <Textarea
+            id="notes"
+            className="mt-2"
+            value={notes}
+            placeholder="Why today felt like this… or something you want to remember."
+            onChange={(e) => setNotes(e.target.value)}
+          />
+        </div>
+        <Button
+          className="w-full"
+          onClick={() => {
+            logBody({
+              ...(existing ?? { source: "manual" }),
+              date: today,
+              energy,
+              mood,
+              focus,
+              notes: notes.trim() || undefined,
+            });
+            toast(existing?.energy ? "Updated" : "Saved");
+          }}
+        >
+          {existing?.energy ? "Update today" : "Save today"}
+        </Button>
       </div>
-      <Button
-        className="w-full"
-        onClick={() => {
-          logBody({
-            ...(existing ?? { source: "manual" }),
-            date: today,
-            energy,
-            mood,
-            focus,
-            notes: notes.trim() || undefined,
-          });
-          toast(existing?.energy ? "Updated" : "Saved");
-        }}
-      >
-        {existing?.energy ? "Update today" : "Save today"}
-      </Button>
+
+      {rated.length > 0 && (
+        <div className="rounded-2xl bg-card p-4 shadow-[var(--shadow-border)]">
+          <p className="font-medium">Energy, mood and focus, 30 days</p>
+          <div className="mt-2 h-40">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={chart} margin={{ top: 8, right: 4, left: 4, bottom: 0 }}>
+                <XAxis
+                  dataKey="label"
+                  tick={{ fontSize: 10 }}
+                  interval={6}
+                  axisLine={false}
+                  tickLine={false}
+                />
+                <YAxis hide domain={[1, 5]} />
+                <Tooltip
+                  contentStyle={{
+                    background: "#fbfaf6",
+                    border: "1px solid #ddd6c8",
+                    borderRadius: 12,
+                    fontSize: 12,
+                  }}
+                />
+                {FEEL.map((f) => (
+                  <Line
+                    key={f.key}
+                    type="monotone"
+                    dataKey={f.key}
+                    name={f.label}
+                    stroke={f.color}
+                    strokeWidth={2}
+                    dot={{ r: 2 }}
+                    connectNulls
+                  />
+                ))}
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+          <div className="mt-1 flex gap-3 text-xs text-muted-foreground">
+            {FEEL.map((f) => (
+              <span key={f.key} className="inline-flex items-center gap-1">
+                <span className="size-2.5 rounded-full" style={{ background: f.color }} />
+                {f.label}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {journal.length > 0 && (
+        <div className="rounded-2xl bg-card p-4 shadow-[var(--shadow-border)]">
+          <p className="font-medium">Your notes</p>
+          <ul className="mt-2 divide-y divide-border">
+            {journal.map((b) => (
+              <li key={b.date} className="py-2">
+                <p className="text-xs text-muted-foreground">
+                  {formatShortDate(b.date)}
+                  {typeof b.energy === "number"
+                    ? ` · energy ${b.energy} · mood ${b.mood ?? "–"} · focus ${b.focus ?? "–"}`
+                    : ""}
+                </p>
+                <p className="mt-0.5 text-sm">{b.notes}</p>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </section>
   );
 }

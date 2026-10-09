@@ -18,7 +18,7 @@ import { useNav } from "@/lib/nav";
 import { clearDelivered, setupNotifications } from "@/lib/notifications";
 import { isNative } from "@/lib/platform";
 import { effectiveSlotTimes, nowInDay, planDay } from "@/lib/protocol";
-import { maybeSyncHealth } from "@/lib/health";
+import { maybeDetectWake, maybeSyncHealth } from "@/lib/health";
 import { listenForShares } from "@/lib/share";
 import { remainingKeys } from "@/lib/stats";
 import { useSupplime } from "@/lib/store";
@@ -122,13 +122,15 @@ export function AppFrame() {
       onSkip: (date, slot, itemId) => {
         useSupplime.getState().logDose(itemId, slot, "skipped", date, { reason: "not-with-me" });
       },
-      onOpen: () => useNav.getState().go("today"),
+      onOpen: (_date, _slot, kind) => useNav.getState().go(kind === "feel" ? "body" : "today"),
     });
     const stopShares = listenForShares((text) => useNav.getState().open({ kind: "add", text }));
     void maybeSyncHealth();
+    void maybeDetectWake();
     const resume = CapApp.addListener("resume", () => {
       setNow(Date.now());
       void maybeSyncHealth();
+      void maybeDetectWake();
     });
     // Android back: close an open panel first, then go back to Today, then leave the app.
     const back = CapApp.addListener("backButton", () => {

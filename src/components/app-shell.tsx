@@ -1,11 +1,11 @@
-import { Activity, BookOpen, Leaf, Settings2, Sparkles } from "lucide-react";
+import { Activity, Archive, Leaf, Settings2, Sparkles } from "lucide-react";
 import type { ReactNode } from "react";
 import { useNav, type Tab } from "@/lib/nav";
 import { cn } from "@/lib/utils";
 
 const NAV: { to: Tab; label: string; icon: typeof Leaf }[] = [
   { to: "today", label: "Today", icon: Leaf },
-  { to: "stack", label: "Stack", icon: BookOpen },
+  { to: "stack", label: "Cabinet", icon: Archive },
   { to: "journey", label: "Journey", icon: Sparkles },
   { to: "body", label: "Body", icon: Activity },
 ];

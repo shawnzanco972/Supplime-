@@ -27,7 +27,7 @@ import { daysOfStock, isLowStock, needsCheckIn, remainingKeys } from "@/lib/stat
 import { appToday, useSupplime } from "@/lib/store";
 import { doseLabel } from "@/lib/journey";
 import { WAKE_RELATIVE, type DoseLog } from "@/lib/types";
-import { cn, formatClock, formatHHMM, greeting } from "@/lib/utils";
+import { cn, formatClock, greeting } from "@/lib/utils";
 
 export function TodayView({ now }: { now: number }) {
   const state = useSupplime();
@@ -37,7 +37,7 @@ export function TodayView({ now }: { now: number }) {
   const date = logicalDate(nowDate, profile.rhythm);
   const nowMin = nowInDay(nowDate, profile.rhythm);
   const day = days.find((d) => d.date === date);
-  const { times, shift, wokeAt } = effectiveSlotTimes(profile, days, date);
+  const { times, shift, wokeAt, wakeSource } = effectiveSlotTimes(profile, days, date);
   const dayStack = stack.filter((i) => i.startedAt <= date);
   const plans = useMemo(
     () => planDay(dayStack, times, nowMin, profile.rhythm.wake),
@@ -105,18 +105,18 @@ export function TodayView({ now }: { now: number }) {
           show: showWake,
           wokeAt,
           shift,
-          onUp: () => {
-            const at = formatHHMM(nowMin);
-            state.setDay(date, { wokeAt: at });
-            const delta = nowMin - dayMinutes(profile.slotTimes.wake, profile.rhythm.wake);
-            toast("Good morning", {
+          source: wakeSource,
+          onSet: (at, source) => {
+            state.setDay(date, { wokeAt: at, wakeSource: source });
+            const delta = dayMinutes(at, profile.rhythm.wake) - dayMinutes(profile.slotTimes.wake, profile.rhythm.wake);
+            toast(`Up at ${formatClock(at)}`, {
               description:
                 Math.abs(delta) < 15
                   ? "Right on schedule."
-                  : `Morning plan moved ${delta > 0 ? "+" : "−"}${fmtDelta(Math.abs(delta))}.`,
+                  : `Morning windows moved ${delta > 0 ? "+" : "−"}${fmtDelta(Math.abs(delta))}. Later ones stay on the clock.`,
             });
           },
-          onUndo: () => state.setDay(date, { wokeAt: undefined }),
+          onUndo: () => state.setDay(date, { wokeAt: undefined, wakeSource: undefined }),
         }}
       />
 

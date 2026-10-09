@@ -615,7 +615,7 @@ function Editor({ item, onClose }: { item: StackItem; onClose: () => void }) {
                 variant="outline"
                 onClick={() => {
                   restoreItem(item.id);
-                  toast(`${item.name} is back in your stack`);
+                  toast(`${item.name} is back in your cabinet`);
                 }}
               >
                 Start again

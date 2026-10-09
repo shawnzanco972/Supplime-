@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { CATALOG_BY_ID } from "./catalog";
 import { backfillLogs, type BackfillPattern } from "./advisor";
-import { defaultRhythm, logicalDate, slotTimesFromRhythm } from "./protocol";
+import { defaultRhythm, logicalDate, nowInDay, slotTimesFromRhythm } from "./protocol";
 import { pillsFor, unitStrength } from "./knowledge";
 import { earnedBadges } from "./stats";
 import type {
@@ -30,7 +30,7 @@ import type {
   StackItem,
   Verdict,
 } from "./types";
-import { addDays, uid } from "./utils";
+import { addDays, formatHHMM, uid } from "./utils";
 
 export const defaultHabits = (): Habits => ({
   coffee: true,
@@ -620,6 +620,17 @@ export const useSupplime = create<SupplimeStore>()(
             stack,
             profile: { ...state.profile, badges: withBadges({ ...state, stack, logs }) },
           });
+          // Flexible mornings: a first log today means you're up by now, so reminders stop
+          // waiting for "I'm up". Your watch or your own tap can correct it later.
+          if (
+            status === "taken" &&
+            state.profile.rhythm.flexibleWake &&
+            date === appToday() &&
+            !state.days.find((d) => d.date === date)?.wokeAt
+          ) {
+            const now = nowInDay(new Date(), state.profile.rhythm);
+            get().setDay(date, { wokeAt: formatHHMM(now % 1440), wakeSource: "inferred" });
+          }
         },
 
         deferDose: (itemId, slot, remindAt, reason, date = appToday()) => {

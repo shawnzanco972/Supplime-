@@ -35,7 +35,7 @@ export function AddScreen({ text }: { text?: string }) {
           seed={seed}
           today={today}
           times={profile.slotTimes}
-          submitLabel="Add to my stack"
+          submitLabel="Add to my cabinet"
           onSubmit={(item) => {
             const id = addItem(item);
             if (!id) return toast.error("Give it a name first.");

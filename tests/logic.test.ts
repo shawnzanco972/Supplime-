@@ -87,14 +87,33 @@ describe("your rhythm", () => {
     expect(logicalDate(new Date(2026, 9, 7, 8, 0), { wake: "10:30" })).toBe("2026-10-07");
   });
 
-  it("moves morning windows when you get up late", () => {
+  it("moves the morning when you get up late, but not the rest of the day", () => {
     const profile = { slotTimes: slotTimesFromRhythm(rhythm()), rhythm: rhythm() };
+    expect(profile.slotTimes.lunch).toBe("13:30");
     const { times, shift } = effectiveSlotTimes(profile, [{ date: TODAY, wokeAt: "09:30" }], TODAY);
     expect(shift).toBe(150);
     expect(times.wake).toBe("09:30");
     expect(times.breakfast).toBe("10:30");
+    expect(times.lunch).toBe("13:30"); // still on the clock (≥ 2.5 h after the first meal)
+    expect(times.afternoon).toBe(profile.slotTimes.afternoon);
     expect(times.dinner).toBe("19:00");
     expect(times.bed).toBe(profile.slotTimes.bed);
+  });
+
+  it("only pushes later windows enough to keep the gaps", () => {
+    const profile = { slotTimes: slotTimesFromRhythm(rhythm()), rhythm: rhythm() };
+    const { times } = effectiveSlotTimes(profile, [{ date: TODAY, wokeAt: "11:30" }], TODAY);
+    expect(times.breakfast).toBe("12:30");
+    expect(times.lunch).toBe("15:00"); // 2.5 h after the first meal, not +4.5 h
+    expect(times.afternoon).toBe("16:30");
+  });
+
+  it("an early start doesn't drag lunch earlier", () => {
+    const profile = { slotTimes: slotTimesFromRhythm(rhythm()), rhythm: rhythm() };
+    const { times } = effectiveSlotTimes(profile, [{ date: TODAY, wokeAt: "05:30" }], TODAY);
+    expect(times.wake).toBe("05:30");
+    expect(times.breakfast).toBe("06:30");
+    expect(times.lunch).toBe("13:30");
   });
 });
 
@@ -806,5 +825,42 @@ describe("v3.3: dose changes start on the right day", () => {
     expect(byCat("lions-mane").pendingDose?.amount).toBe(600);
     s().cancelPendingDose(id);
     expect(byCat("lions-mane").pendingDose).toBeUndefined();
+  });
+});
+
+describe("v3.4: real mornings and evening check-ins", () => {
+  it("a first log on a flexible morning means you're up by then", () => {
+    setup(["lions-mane"], { flexibleWake: true });
+    vi.setSystemTime(new Date(2026, 9, 6, 11, 32, 0));
+    s().logDose(byCat("lions-mane").id, byCat("lions-mane").slots[0]!, "taken", TODAY);
+    expect(s().days.find((d) => d.date === TODAY)).toMatchObject({
+      wokeAt: "11:32",
+      wakeSource: "inferred",
+    });
+  });
+
+  it("doesn't guess a wake time when your mornings are fixed", () => {
+    setup(["lions-mane"]);
+    s().logDose(byCat("lions-mane").id, byCat("lions-mane").slots[0]!, "taken", TODAY);
+    expect(s().days.find((d) => d.date === TODAY)?.wokeAt).toBeUndefined();
+  });
+
+  it("reminds you to rate the day an hour before bed, until you do", () => {
+    const list = buildSchedule(new Date(2026, 9, 6, 7, 0, 0));
+    const feel = list.filter((n) => (n.extra as { kind?: string }).kind === "feel");
+    expect(feel).toHaveLength(7);
+    expect((feel[0]!.schedule!.at as Date).getHours()).toBe(22);
+    s().logBody({ date: TODAY, energy: 4, mood: 4, focus: 3, notes: "Good day", source: "manual" });
+    expect(
+      buildSchedule(new Date(2026, 9, 6, 7, 0, 0)).filter(
+        (n) => (n.extra as { kind?: string }).kind === "feel",
+      ),
+    ).toHaveLength(6);
+    s().setProfile({ feelReminder: { enabled: false } });
+    expect(
+      buildSchedule(new Date(2026, 9, 6, 7, 0, 0)).some(
+        (n) => (n.extra as { kind?: string }).kind === "feel",
+      ),
+    ).toBe(false);
   });
 });

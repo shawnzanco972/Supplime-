@@ -73,7 +73,7 @@ export function StackView() {
       <header className="flex items-end justify-between gap-3">
         <div>
           <p className="text-sm text-muted-foreground">Tap one to edit, pause, stop or delete</p>
-          <h1 className="font-display text-3xl tracking-tight">Stack</h1>
+          <h1 className="font-display text-3xl tracking-tight">Cabinet</h1>
         </div>
         <Button onClick={() => open({ kind: "add" })}>Add</Button>
       </header>
@@ -121,7 +121,7 @@ export function StackView() {
       {planned.length > 0 && (
         <section className="space-y-3">
           <div>
-            <h2 className="font-display text-lg tracking-tight">In your cabinet</h2>
+            <h2 className="font-display text-lg tracking-tight">Waiting to start</h2>
             <p className="text-sm text-muted-foreground">
               Owned, not started. Journey tells you when it's a good time.
             </p>

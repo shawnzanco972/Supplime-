@@ -236,6 +236,8 @@ export type DoseLog = {
 export type DayContext = {
   date: string;
   wokeAt?: string;
+  /** Where the wake time came from: you, your watch, or your first log of the day. */
+  wakeSource?: "tap" | "watch" | "inferred";
   coffeeAt?: string[];
   alcoholAt?: string[];
   /** Meals you logged today (HH:MM). */
@@ -349,6 +351,8 @@ export type Profile = {
   coachNotes?: { date: string; text: string; source: string }[];
   /** Health Connect (Fitbit / Google Health) sync. */
   healthSync?: { enabled: boolean; lastSync?: string; scope?: number };
+  /** Evening "how was your day?" reminder (on unless you turn it off). */
+  feelReminder?: { enabled: boolean; time?: string };
 };
 
 export type CoachResult = {

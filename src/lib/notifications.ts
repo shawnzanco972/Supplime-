@@ -5,7 +5,7 @@ import { activeStack, dayMinutes, effectiveSlotTimes, logicalDate, planDay } fro
 import { daysOfStock, remainingKeys } from "./stats";
 import { useSupplime } from "./store";
 import { SLOTS, WAKE_RELATIVE, type SlotId } from "./types";
-import { addDays, formatClock, formatShortDate, parseISODate } from "./utils";
+import { addDays, formatClock, formatHHMM, formatShortDate, parseISODate } from "./utils";
 
 /**
  * Native reminders. Instead of relying on the app being open, Supplime hands Android a
@@ -31,8 +31,16 @@ const reminderId = (day: number, slot: SlotId, nag: boolean) =>
 const CATCHUP_BASE = 7000;
 const SNOOZE_BASE = 8000;
 const STOCK_BASE = 9000;
+const FEEL_BASE = 9500;
 
-type Extra = { date?: string; slot?: SlotId; itemId?: string; catchUp?: boolean };
+type Extra = {
+  date?: string;
+  slot?: SlotId;
+  itemId?: string;
+  catchUp?: boolean;
+  /** "feel": the evening "how was your day?" reminder. */
+  kind?: "feel";
+};
 
 let setupDone = false;
 
@@ -40,7 +48,7 @@ export async function setupNotifications(handlers: {
   onTake: (date: string, slot: SlotId, itemId?: string) => void;
   onNotWithMe: (date: string, slot: SlotId) => void;
   onSkip: (date: string, slot: SlotId, itemId: string) => void;
-  onOpen: (date: string | null, slot: SlotId | null) => void;
+  onOpen: (date: string | null, slot: SlotId | null, kind?: Extra["kind"]) => void;
 }) {
   if (!isNative() || setupDone) return;
   setupDone = true;
@@ -109,7 +117,7 @@ export async function setupNotifications(handlers: {
       });
       return;
     }
-    handlers.onOpen(extra.date ?? null, extra.slot ?? null);
+    handlers.onOpen(extra.date ?? null, extra.slot ?? null, extra.kind);
   });
 }
 
@@ -161,6 +169,15 @@ function at(date: string, minutes: number) {
 
 const doseLabel = (name: string, amount: number, unit: string) =>
   `${name} ${amount}${unit === "mg" || unit === "g" ? "" : " "}${unit}`;
+
+/** Evening check-in: on by default, an hour before bed. */
+export function feelReminder(profile: { rhythm: { bed: string; wake: string }; feelReminder?: { enabled: boolean; time?: string } }) {
+  const bed = dayMinutes(profile.rhythm.bed, profile.rhythm.wake);
+  return {
+    enabled: profile.feelReminder?.enabled ?? true,
+    time: profile.feelReminder?.time ?? formatHHMM((bed - 60) % 1440),
+  };
+}
 
 /** Pure planner, exported for tests: which notifications should exist right now. */
 export function buildSchedule(now = new Date()): LocalNotificationSchema[] {
@@ -260,6 +277,34 @@ export function buildSchedule(now = new Date()): LocalNotificationSchema[] {
         extra: { date: log.date, slot: log.slot, itemId: item.id, catchUp: true } satisfies Extra,
       });
     });
+
+  // Evening "how was your day?" (Settings can turn it off).
+  const feel = feelReminder(profile);
+  if (feel.enabled) {
+    const rated = new Set(
+      useSupplime
+        .getState()
+        .body.filter((b) => typeof b.energy === "number")
+        .map((b) => b.date),
+    );
+    for (let day = 0; day < 7; day++) {
+      const date = addDays(today, day);
+      if (rated.has(date)) continue;
+      const when = at(date, dayMinutes(feel.time, wake));
+      if (when.getTime() <= now.getTime()) continue;
+      out.push({
+        id: FEEL_BASE + day,
+        channelId: CHANNEL,
+        smallIcon: "ic_stat_supplime",
+        iconColor: "#3D5A4C",
+        autoCancel: true,
+        title: "How was your day?",
+        body: "Rate your energy, mood and focus, and add a note or an affirmation. 10 seconds.",
+        schedule: { at: when, allowWhileIdle: true },
+        extra: { date, kind: "feel" } satisfies Extra,
+      });
+    }
+  }
 
   // One heads-up per bottle on the morning it crosses its reorder threshold.
   activeStack(stack).forEach((item, i) => {

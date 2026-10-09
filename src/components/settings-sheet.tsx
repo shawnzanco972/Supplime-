@@ -20,6 +20,7 @@ import { HealthConnect } from "@/components/health-connect";
 import { useNav } from "@/lib/nav";
 import {
   exactAlarmsAllowed,
+  feelReminder,
   openExactAlarmSettings,
   requestNotificationPermission,
   syncReminders,
@@ -35,6 +36,7 @@ const TARGETS = [0.7, 0.8, 0.85, 0.9, 1];
 export function SettingsScreen() {
   const close = useNav((s) => s.close);
   const profile = useSupplime((s) => s.profile);
+  const feel = feelReminder(profile);
   const setNotifications = useSupplime((s) => s.setNotifications);
   const setSlotTime = useSupplime((s) => s.setSlotTime);
   const setProfile = useSupplime((s) => s.setProfile);
@@ -192,6 +194,30 @@ export function SettingsScreen() {
               ))}
             </div>
           </div>
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <Label htmlFor="feel">Evening check-in</Label>
+              <p className="mt-1 text-xs text-muted-foreground">
+                "How was your day?": energy, mood, focus and a note.
+              </p>
+            </div>
+            <Switch
+              id="feel"
+              checked={feel.enabled}
+              onCheckedChange={(enabled) =>
+                setProfile({ feelReminder: { ...profile.feelReminder, enabled } })
+              }
+            />
+          </div>
+          {feel.enabled && (
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-sm text-muted-foreground">At</span>
+              <TimeInput
+                value={feel.time}
+                onChange={(time) => setProfile({ feelReminder: { enabled: true, time } })}
+              />
+            </div>
+          )}
         </Section>
 
         <Section

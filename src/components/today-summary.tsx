@@ -1,4 +1,8 @@
-import { Check, Sparkles, Sun, Undo2 } from "lucide-react";
+import { Check, Sparkles, Sun, Undo2, Watch } from "lucide-react";
+import { useState } from "react";
+import { TimeInput } from "@/components/fields";
+import { Sheet } from "@/components/ui/screen";
+import { detectWake } from "@/lib/health";
 import { toast } from "sonner";
 import { DayLog } from "@/components/day-log";
 import { Button } from "@/components/ui/button";
@@ -7,7 +11,7 @@ import { doseKey, type SlotPlan } from "@/lib/protocol";
 import { rangeAdherence } from "@/lib/stats";
 import { useSupplime } from "@/lib/store";
 import type { DayContext, DoseLog, StackItem } from "@/lib/types";
-import { addDays, cn, daysBetween, formatClock, formatShortDate } from "@/lib/utils";
+import { addDays, cn, daysBetween, formatClock, formatHHMM, formatShortDate } from "@/lib/utils";
 
 /**
  * The bottom line for today, above the fold: what you've done, what's left, how your
@@ -26,9 +30,17 @@ export function TodaySummary({
   todayLogs: DoseLog[];
   day?: DayContext;
   nowMin: number;
-  wake: { show: boolean; wokeAt?: string; shift: number; onUp: () => void; onUndo: () => void };
+  wake: {
+    show: boolean;
+    wokeAt?: string;
+    source?: DayContext["wakeSource"];
+    shift: number;
+    onSet: (at: string, source: "tap" | "watch") => void;
+    onUndo: () => void;
+  };
 }) {
   const { stack, logs, profile } = useSupplime();
+  const [wakeOpen, setWakeOpen] = useState(false);
   const doses = plans.flatMap((p) =>
     p.waves.flatMap((w) => w.doses.map((d) => ({ ...d, slotLabel: p.slot.label, time: p.time }))),
   );
@@ -104,21 +116,34 @@ export function TodaySummary({
         {wake.show ? (
           <div className="flex items-center justify-between gap-3">
             <p className="text-sm text-muted-foreground">
-              Up yet? Your morning windows move with you.
+              Up yet? Your morning windows follow when you got up.
             </p>
-            <Button size="sm" onClick={wake.onUp}>
+            <Button size="sm" onClick={() => setWakeOpen(true)}>
               <Sun /> I'm up
             </Button>
           </div>
         ) : wake.wokeAt ? (
           <div className="flex items-center justify-between gap-3 text-sm">
-            <p className="text-muted-foreground">
+            <button
+              type="button"
+              onClick={() => setWakeOpen(true)}
+              className="min-w-0 text-left text-muted-foreground"
+            >
               <Sun className="mr-1 inline size-3.5 align-[-2px]" />
-              Up at <span className="font-medium text-foreground">{formatClock(wake.wokeAt)}</span>
-              {Math.abs(wake.shift) >= 15
-                ? `, so today's windows moved ${fmtShift(wake.shift)} ${wake.shift > 0 ? "later" : "earlier"}`
-                : ", right on plan"}
-            </p>
+              {wake.source === "inferred" ? "Up by " : "Up at "}
+              <span className="font-medium text-foreground underline decoration-dotted underline-offset-2">
+                {formatClock(wake.wokeAt)}
+              </span>
+              {wake.source === "watch"
+                ? " (from your watch)"
+                : wake.source === "inferred"
+                  ? " (your first log). Tap to set the real time"
+                  : ""}
+              {Math.abs(wake.shift) >= 15 && wake.source !== "inferred"
+                ? `. Morning windows moved ${fmtShift(wake.shift)} ${wake.shift > 0 ? "later" : "earlier"}`
+                : ""}
+              .
+            </button>
             <button
               type="button"
               className="flex min-h-9 shrink-0 items-center gap-1 text-xs text-muted-foreground"
@@ -128,9 +153,93 @@ export function TodaySummary({
             </button>
           </div>
         ) : null}
+        {wakeOpen && (
+          <WakeSheet
+            nowMin={nowMin}
+            usual={profile.rhythm.wake}
+            watch={!!profile.healthSync?.enabled}
+            onClose={() => setWakeOpen(false)}
+            onPick={(at, source) => {
+              wake.onSet(at, source);
+              setWakeOpen(false);
+            }}
+          />
+        )}
         <DayLog date={date} day={day} nowMin={nowMin} />
       </div>
     </section>
+  );
+}
+
+/** "When did you get up?": now, a bit ago, your watch, or an exact time. */
+function WakeSheet({
+  nowMin,
+  usual,
+  watch,
+  onClose,
+  onPick,
+}: {
+  nowMin: number;
+  usual: string;
+  watch: boolean;
+  onClose: () => void;
+  onPick: (at: string, source: "tap" | "watch") => void;
+}) {
+  const wrap = (m: number) => ((m % 1440) + 1440) % 1440;
+  const [exact, setExact] = useState(formatHHMM(wrap(nowMin)));
+  const [checking, setChecking] = useState(false);
+  const presets = [
+    { label: "Just now", m: wrap(nowMin) },
+    { label: "30 min ago", m: wrap(nowMin - 30) },
+    { label: "1 h ago", m: wrap(nowMin - 60) },
+    { label: "2 h ago", m: wrap(nowMin - 120) },
+  ];
+  return (
+    <Sheet onClose={onClose} title="When did you get up?" description={`Usually ${formatClock(usual)}.`}>
+      <div className="space-y-4">
+        {watch && (
+          <Button
+            variant="outline"
+            className="w-full"
+            disabled={checking}
+            onClick={async () => {
+              setChecking(true);
+              const woke = await detectWake();
+              setChecking(false);
+              if (woke) onPick(woke, "watch");
+              else
+                toast("No sleep from your watch yet", {
+                  description: "Open the Fitbit app so it syncs, or pick a time below.",
+                });
+            }}
+          >
+            <Watch /> {checking ? "Checking…" : "Use my watch's wake time"}
+          </Button>
+        )}
+        <div className="grid grid-cols-2 gap-2">
+          {presets.map((p) => (
+            <button
+              key={p.label}
+              type="button"
+              onClick={() => onPick(formatHHMM(p.m), "tap")}
+              className="rounded-xl border-2 border-border bg-card px-3 py-2 text-left text-sm"
+            >
+              <span className="block font-medium">{p.label}</span>
+              <span className="block text-xs text-muted-foreground">
+                {formatClock(formatHHMM(p.m))}
+              </span>
+            </button>
+          ))}
+        </div>
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-sm text-muted-foreground">Exact time</span>
+          <TimeInput value={exact} onChange={setExact} />
+        </div>
+        <Button className="w-full" onClick={() => onPick(exact, "tap")}>
+          Up at {formatClock(exact)}
+        </Button>
+      </div>
+    </Sheet>
   );
 }
 

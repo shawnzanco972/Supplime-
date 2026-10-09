@@ -1,8 +1,9 @@
 import { Health, type HealthDataType, type HealthSample } from "@capgo/capacitor-health";
 import { isNative } from "./platform";
-import { useSupplime } from "./store";
+import { logicalDate } from "./protocol";
+import { appToday, useSupplime } from "./store";
 import type { BodyLog } from "./types";
-import { todayKey } from "./utils";
+import { formatHHMM, parseHHMM, todayKey } from "./utils";
 
 /**
  * Health Connect is Android's shared health store. Fitbit / Google Health write sleep,
@@ -155,4 +156,61 @@ export async function maybeSyncHealth() {
   if (!sync?.enabled) return;
   if (sync.lastSync && Date.now() - Date.parse(sync.lastSync) < 6 * 3_600_000) return;
   await syncHealth(14);
+}
+
+/**
+ * When you really got up today, from last night's sleep in Health Connect: the end of the
+ * last sleep session of at least 3 hours that ended this morning. Fitbit usually syncs it
+ * within minutes of you opening the Fitbit / Google Health app.
+ */
+export async function detectWake(): Promise<string | null> {
+  if (!isNative()) return null;
+  const { profile } = useSupplime.getState();
+  const now = new Date();
+  const start = new Date(now.getTime() - 20 * 3_600_000);
+  let res;
+  try {
+    res = await Health.readSamples({
+      dataType: "sleep",
+      startDate: start.toISOString(),
+      endDate: now.toISOString(),
+      limit: 200,
+    });
+  } catch {
+    return null;
+  }
+  // Merge stage segments into sessions: gaps under 45 minutes are the same night.
+  const parts = (res?.samples ?? [])
+    .map((x) => ({ s: Date.parse(x.startDate), e: Date.parse(x.endDate) }))
+    .filter((x) => x.e > x.s)
+    .sort((a, b) => a.s - b.s);
+  const sessions: { s: number; e: number }[] = [];
+  for (const p of parts) {
+    const last = sessions.at(-1);
+    if (last && p.s - last.e < 45 * 60_000) last.e = Math.max(last.e, p.e);
+    else sessions.push({ ...p });
+  }
+  const main = sessions.filter((x) => x.e - x.s >= 3 * 3_600_000).at(-1);
+  if (!main) return null;
+  const end = new Date(main.e);
+  // Must be this morning (in your day), not yesterday's.
+  if (logicalDate(end, profile.rhythm) !== logicalDate(now, profile.rhythm)) return null;
+  return formatHHMM(end.getHours() * 60 + end.getMinutes());
+}
+
+let lastWakeCheck = 0;
+/** Fill in today's wake time from the watch, unless you already said when you got up. */
+export async function maybeDetectWake() {
+  const state = useSupplime.getState();
+  if (!state.profile.healthSync?.enabled) return;
+  if (Date.now() - lastWakeCheck < 15 * 60_000) return;
+  lastWakeCheck = Date.now();
+  const date = appToday();
+  const day = state.days.find((d) => d.date === date);
+  if (day?.wokeAt && day.wakeSource !== "inferred") return;
+  const woke = await detectWake();
+  if (!woke) return;
+  // Your first log said "up by"; the watch knows better unless it says later than that.
+  if (day?.wokeAt && parseHHMM(woke) > parseHHMM(day.wokeAt)) return;
+  state.setDay(date, { wokeAt: woke, wakeSource: "watch" });
 }

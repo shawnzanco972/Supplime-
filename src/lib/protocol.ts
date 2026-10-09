@@ -8,7 +8,7 @@ import type {
   SlotTimes,
   StackItem,
 } from "./types";
-import { SLOTS, WAKE_RELATIVE } from "./types";
+import { SLOTS } from "./types";
 import { addDays, formatHHMM, parseHHMM, todayKey } from "./utils";
 
 export type PlannedDose = {
@@ -134,27 +134,41 @@ export function nowInDay(now: Date, rhythm: Pick<Rhythm, "wake">) {
 }
 
 /**
- * Today's actual windows. If you tapped "I'm up" later (or earlier) than planned, the
- * waking-relative windows move with you; the evening ones stay put.
+ * Today's actual windows. Your on-waking and first-meal windows follow when you really got
+ * up (from your watch, "I'm up", or your first log). Later windows stay on the clock, as real
+ * days do: a late morning doesn't move lunch. They only shift to keep sensible gaps
+ * (≥ 2.5 h after your first meal, ≥ 1.5 h between the next two) and never past your last meal.
  */
 export function effectiveSlotTimes(
   profile: Pick<Profile, "slotTimes" | "rhythm">,
   days: DayContext[],
   date: string,
-): { times: SlotTimes; shift: number; wokeAt?: string } {
+): { times: SlotTimes; shift: number; wokeAt?: string; wakeSource?: DayContext["wakeSource"] } {
   const base = profile.slotTimes;
   const ctx = days.find((d) => d.date === date);
   if (!ctx?.wokeAt) return { times: base, shift: 0 };
   const wake = profile.rhythm.wake;
-  const shift = dayMinutes(ctx.wokeAt, wake) - dayMinutes(base.wake, wake);
-  const times = { ...base };
-  const lastMeal = dayMinutes(base.dinner, wake);
-  for (const slot of WAKE_RELATIVE) {
-    let m = dayMinutes(base[slot], wake) + shift;
-    if (slot !== "wake") m = Math.min(m, lastMeal - 45);
-    times[slot] = formatHHMM(Math.max(0, m));
-  }
-  return { times, shift, wokeAt: ctx.wokeAt };
+  const m = (t: string) => dayMinutes(t, wake);
+  const shift = m(ctx.wokeAt) - m(base.wake);
+  const lastMeal = m(base.dinner);
+  const cap = (x: number) => Math.min(x, lastMeal - 45);
+  const wakeAt = m(ctx.wokeAt);
+  const breakfast = cap(Math.max(wakeAt + 15, m(base.breakfast) + shift));
+  // Shift later windows only as far as the gaps need, and never more than the morning moved.
+  const lunch = cap(
+    Math.min(Math.max(m(base.lunch), breakfast + 150), m(base.lunch) + Math.max(0, shift)),
+  );
+  const afternoon = cap(
+    Math.min(Math.max(m(base.afternoon), lunch + 90), m(base.afternoon) + Math.max(0, shift)),
+  );
+  const times: SlotTimes = {
+    ...base,
+    wake: formatHHMM(Math.max(0, wakeAt)),
+    breakfast: formatHHMM(breakfast),
+    lunch: formatHHMM(Math.max(lunch, breakfast + 30)),
+    afternoon: formatHHMM(Math.max(afternoon, lunch + 30)),
+  };
+  return { times, shift, wokeAt: ctx.wokeAt, wakeSource: ctx.wakeSource };
 }
 
 /* ------------------------------------------------------------------ planning */
