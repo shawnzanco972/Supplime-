@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Supplime lime-slice "e" (from the logo SVGs). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="240dp" android:height="240dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <path android:fillColor="#FFF4F1EA" android:pathData="M57.9 58.55 L72.16,58.55 A18.72 18.72 0 0 1 64.3,69.63 ZM54 56.21 L62.39,70.74 A18.72 18.72 0 0 1 45.61,70.74 ZM50.1 58.55 L43.7,69.63 A18.72 18.72 0 0 1 35.84,58.55 ZM50.1 49.45 L35.84,49.45 A18.72 18.72 0 0 1 43.7,38.37 ZM54 51.79 L45.61,37.26 A18.72 18.72 0 0 1 62.39,37.26 ZM57.9 49.45 L64.3,38.37 A18.72 18.72 0 0 1 72.16,49.45 Z" />
+    <path android:fillColor="#FFF4F1EA" android:pathData="M72.7,72.06 A26 26 0 1 1 80 54 L74.8 54 A20.8 20.8 0 1 0 68.96,68.45 Z M31.64 51.53 H79.88 V56.47 H31.64 Z" />
+</vector>

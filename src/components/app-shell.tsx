@@ -25,7 +25,7 @@ export function AppShell({
       <div className="mx-auto flex min-h-dvh w-full max-w-5xl">
         <aside className="sticky top-0 hidden h-dvh w-56 shrink-0 flex-col border-r border-border px-4 py-6 md:flex">
           <div className="px-2">
-            <p className="font-display text-2xl tracking-tight">Supplime</p>
+            <Wordmark className="h-7" />
             <p className="mt-1 text-xs text-muted-foreground">Your stack, on time.</p>
           </div>
           <nav className="mt-8 flex flex-col gap-1">
@@ -61,7 +61,7 @@ export function AppShell({
 
         <div className="flex min-w-0 flex-1 flex-col">
           <header className="flex items-center justify-between px-4 pt-[max(1rem,env(safe-area-inset-top))] pb-2 md:hidden">
-            <p className="font-display text-xl tracking-tight">Supplime</p>
+            <Wordmark className="h-6" />
             <button
               type="button"
               onClick={onOpenSettings}
@@ -108,5 +108,17 @@ export function AppShell({
         </div>
       </nav>
     </div>
+  );
+}
+
+/** The Supplime wordmark (lime-slice "e"). */
+export function Wordmark({ className, reversed }: { className?: string; reversed?: boolean }) {
+  return (
+    <img
+      src={`${import.meta.env.BASE_URL}brand/supplime-wordmark${reversed ? "-reversed" : ""}.svg`}
+      alt="Supplime"
+      className={cn("w-auto select-none", className)}
+      draggable={false}
+    />
   );
 }

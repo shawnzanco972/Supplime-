@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { toast } from "sonner";
 import {
   Field,
@@ -362,9 +362,10 @@ function Editor({ item, onClose }: { item: StackItem; onClose: () => void }) {
           )}
           {prod ? (
             <>
-              <p className="text-sm text-muted-foreground">
-                {prod.brand} · {prod.name}
-              </p>
+              <div>
+                <p className="text-xs text-muted-foreground">{prod.brand}</p>
+                <p className="text-sm font-medium">{prod.name}</p>
+              </div>
               <Stepper
                 value={pills}
                 onChange={(n) =>
@@ -380,7 +381,9 @@ function Editor({ item, onClose }: { item: StackItem; onClose: () => void }) {
                 {contentsLabel(prod.perUnit, pills, prod.form)}
               </p>
               {prod.labelUse && (
-                <p className="text-xs text-muted-foreground">Label: {prod.labelUse}</p>
+                <p className="text-xs text-muted-foreground">
+                  <span className="font-medium text-foreground">On the label:</span> {prod.labelUse}
+                </p>
               )}
             </>
           ) : (
@@ -435,14 +438,19 @@ function Editor({ item, onClose }: { item: StackItem; onClose: () => void }) {
             </Field>
           )}
           {item.doseHistory.length > 1 && (
-            <ol className="space-y-1 text-xs text-muted-foreground">
-              {[...item.doseHistory].reverse().map((step, i) => (
-                <li key={`${step.date}-${i}`}>
-                  {i === 0 ? "Now" : "Before"}: {step.amount} {step.unit} from{" "}
-                  {formatShortDate(step.date)}
-                </li>
-              ))}
-            </ol>
+            <div className="border-t border-border pt-3">
+              <p className="mb-1.5 text-xs font-medium">Dose history</p>
+              <dl className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                {[...item.doseHistory].reverse().map((step, i) => (
+                  <Fragment key={`${step.date}-${i}`}>
+                    <dt className={cn(i === 0 && "font-medium text-foreground")}>
+                      {i === 0 ? "Now" : "Before"}: {step.amount} {step.unit}
+                    </dt>
+                    <dd className="text-right tabular-nums">from {formatShortDate(step.date)}</dd>
+                  </Fragment>
+                ))}
+              </dl>
+            </div>
           )}
         </Section>
 

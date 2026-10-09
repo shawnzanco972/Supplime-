@@ -4,9 +4,9 @@ const config: CapacitorConfig = {
   appId: "com.shawnzanco.supplime",
   appName: "Supplime",
   webDir: "dist",
-  backgroundColor: "#F4F1EA",
+  backgroundColor: "#3D5A4C",
   android: {
-    backgroundColor: "#F4F1EA",
+    backgroundColor: "#3D5A4C",
   },
   plugins: {
     SystemBars: {

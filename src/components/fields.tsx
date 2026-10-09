@@ -679,17 +679,17 @@ export function Stepper({
   label: string;
 }) {
   return (
-    <div className="flex items-center gap-3">
+    <div className="flex items-center justify-between gap-2 rounded-2xl bg-secondary p-1.5">
       <button
         type="button"
         aria-label="Fewer"
         disabled={value <= min}
         onClick={() => onChange(value - 1)}
-        className="flex size-11 items-center justify-center rounded-xl bg-secondary text-xl font-medium disabled:opacity-40"
+        className="flex size-11 shrink-0 items-center justify-center rounded-full bg-card text-xl font-medium shadow-sm disabled:opacity-40"
       >
         −
       </button>
-      <span className="min-w-24 text-center">
+      <span className="min-w-0 flex-1 text-center leading-tight">
         <span className="block text-2xl font-semibold tabular-nums">{value}</span>
         <span className="block text-xs text-muted-foreground">{label}</span>
       </span>
@@ -698,7 +698,7 @@ export function Stepper({
         aria-label="More"
         disabled={value >= max}
         onClick={() => onChange(value + 1)}
-        className="flex size-11 items-center justify-center rounded-xl bg-secondary text-xl font-medium disabled:opacity-40"
+        className="flex size-11 shrink-0 items-center justify-center rounded-full bg-card text-xl font-medium shadow-sm disabled:opacity-40"
       >
         +
       </button>

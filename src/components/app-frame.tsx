@@ -153,9 +153,13 @@ export function AppFrame() {
 
   if (!hydrated) {
     return (
-      <div className="flex min-h-dvh flex-col justify-end px-6 py-16">
-        <p className="text-xs font-medium text-muted-foreground">Supplime</p>
-        <h1 className="mt-4 font-display text-4xl tracking-tight">Your stack, on time.</h1>
+      // Same as the native splash, so opening the app is one calm moment.
+      <div className="flex min-h-dvh items-center justify-center bg-primary">
+        <img
+          src={`${import.meta.env.BASE_URL}brand/supplime-wordmark-reversed.svg`}
+          alt="Supplime"
+          className="w-[62vw] max-w-sm"
+        />
       </div>
     );
   }

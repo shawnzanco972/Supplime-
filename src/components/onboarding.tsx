@@ -1,3 +1,4 @@
+import { Wordmark } from "@/components/app-shell";
 import { X } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { Chip, HabitsForm, RhythmForm } from "@/components/fields";
@@ -52,7 +53,7 @@ export function Onboarding() {
   return (
     <div className="mx-auto flex min-h-dvh w-full max-w-lg flex-col px-5 pt-[max(2rem,calc(env(safe-area-inset-top)+1.5rem))] pb-[max(2rem,calc(env(safe-area-inset-bottom)+1rem))]">
       <div className="flex items-center justify-between">
-        <p className="text-xs font-medium text-muted-foreground">Supplime</p>
+        <Wordmark className="h-5" />
         {step > 0 && (
           <div className="flex gap-1" aria-label={`Step ${step} of ${STEPS - 1}`}>
             {Array.from({ length: STEPS - 1 }, (_, i) => (
