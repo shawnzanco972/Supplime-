@@ -26,7 +26,7 @@ import {
   effectHistory,
 } from "@/lib/stats";
 import { appToday, useSupplime } from "@/lib/store";
-import type { BadgeId, DecisionKind, Verdict } from "@/lib/types";
+import type { BadgeId, DecisionKind, StackItem, Verdict } from "@/lib/types";
 import { addDays, cn, daysBetween, formatShortDate } from "@/lib/utils";
 
 export function JourneyView() {
@@ -276,12 +276,13 @@ export function JourneyCard({
   const span = Math.max(...j.milestones.map((m) => m.day), j.day, j.felt?.day ?? 0) * 1.05;
   const pct = (d: number) => `${Math.min(100, (d / span) * 100)}%`;
   const p = j.profile;
+  const [steps, setSteps] = useState(false);
   return (
     <div className="rounded-2xl bg-card p-4 shadow-[var(--shadow-border)]">
-      <button type="button" onClick={onOpen} className="w-full text-left">
+      <div className="w-full text-left">
         <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <p className="font-medium">{j.item.name}</p>
+          <button type="button" onClick={onOpen} className="min-w-0 text-left">
+            <p className="font-medium underline-offset-2 hover:underline">{j.item.name}</p>
             <UseTags catalogId={j.item.catalogId} className="my-1" />
             <p className="text-xs text-muted-foreground">
               Day {j.day} · {j.takenDays} taken
@@ -289,7 +290,7 @@ export function JourneyCard({
               at {doseLabel(j.item, j.item.amount)}
               {j.item.slots.length > 1 ? ` ×${j.item.slots.length}/day` : ""}
             </p>
-          </div>
+          </button>
           <span
             className={cn(
               "shrink-0 rounded-full px-2.5 py-1 text-xs font-medium",
@@ -300,8 +301,14 @@ export function JourneyCard({
           </span>
         </div>
 
-        {/* Timeline */}
-        <div className="relative mt-5 mb-7 h-3 rounded-full bg-muted">
+        {/* Timeline: tap for what each marker means */}
+        <button
+          type="button"
+          onClick={() => setSteps(!steps)}
+          aria-expanded={steps}
+          aria-label="Show the timeline steps"
+          className="relative mt-5 mb-7 block h-3 w-full rounded-full bg-muted"
+        >
           <div
             className="absolute inset-y-0 rounded-full bg-accent"
             style={{
@@ -339,7 +346,8 @@ export function JourneyCard({
           <span className="absolute top-4 right-0 text-[10px] text-muted-foreground">
             verdict d{j.milestones.find((m) => m.key === "evaluate")?.day}
           </span>
-        </div>
+        </button>
+        {steps && <TimelineSteps j={j} />}
 
         <p className="text-sm">
           {j.felt ? (
@@ -428,7 +436,7 @@ export function JourneyCard({
             Only {daysOfStock(j.item)} days left in the bottle.
           </p>
         )}
-      </button>
+      </div>
 
       <div className="mt-3 flex items-center justify-between gap-3 border-t border-border pt-3">
         <p className="min-w-0 text-xs text-muted-foreground">
@@ -445,6 +453,65 @@ export function JourneyCard({
         </Button>
       </div>
     </div>
+  );
+}
+
+/** Every point on a supplement's timeline, in order: what it means and when. */
+function TimelineSteps({ j }: { j: Journey }) {
+  const today = appToday();
+  const rows: { day: number; date: string; label: string; detail: string; state: "done" | "now" | "next" }[] = [
+    ...j.milestones.map((m) => ({
+      day: m.day,
+      date: m.date,
+      label: m.label,
+      detail: m.detail,
+      state: (m.reached ? "done" : "next") as "done" | "next",
+    })),
+    ...j.item.doseHistory.slice(1).map((s) => ({
+      day: daysBetween(j.item.startedAt, s.date) + 1,
+      date: s.date,
+      label: `Dose changed to ${s.amount} ${s.unit}`,
+      detail: "A new step: its own wait before the next change.",
+      state: (s.date <= today ? "done" : "next") as "done" | "next",
+    })),
+    ...(j.felt
+      ? [
+          {
+            day: j.felt.day,
+            date: addDays(j.item.startedAt, j.felt.day - 1),
+            label: "You felt it",
+            detail: "Your first “clearly better” check-in.",
+            state: "done" as const,
+          },
+        ]
+      : []),
+    { day: j.day, date: today, label: "Today", detail: `Day ${j.day}.`, state: "now" as const },
+  ].sort(
+    (a, b) =>
+      a.day - b.day ||
+      (a.state === "now" ? 1 : b.state === "now" ? -1 : 0) ||
+      (a.label === "Started" ? -1 : b.label === "Started" ? 1 : 0),
+  );
+  return (
+    <ol className="mb-3 -mt-3 space-y-2 border-l-2 border-border pl-4">
+      {rows.map((r, i) => (
+        <li key={`${r.label}-${i}`} className="relative">
+          <span
+            className={cn(
+              "absolute top-1 -left-[23px] size-3 rounded-full border-2 border-card",
+              r.state === "done" ? "bg-primary" : r.state === "now" ? "bg-warn" : "bg-muted-foreground/40",
+            )}
+          />
+          <p className={cn("text-sm", r.state === "now" ? "font-semibold" : "font-medium")}>
+            {r.label}
+            <span className="ml-1.5 text-xs font-normal text-muted-foreground">
+              day {r.day} · {formatShortDate(r.date)}
+            </span>
+          </p>
+          <p className="text-xs text-muted-foreground">{r.detail}</p>
+        </li>
+      ))}
+    </ol>
   );
 }
 
@@ -1065,8 +1132,12 @@ function WhatsNext() {
                       On iHerb: {idea.products.slice(0, 3).join(" · ")}
                     </p>
                   )}
-                  <Button size="sm" variant="outline" onClick={() => open({ kind: "add" })}>
-                    Add to my cabinet
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => open({ kind: "add", catalogId: idea.catalogId })}
+                  >
+                    Read more and add
                   </Button>
                 </div>
               </details>
@@ -1082,48 +1153,95 @@ function WhatsNext() {
 function Findings() {
   const { stack, logs, effects, decisions, body } = useSupplime();
   const today = appToday();
-  const lines: { key: string; text: string }[] = [];
-  for (const item of stack) {
-    if (item.planned) continue;
-    const j = journeyFor({ item, logs, effects, decisions, today });
-    if (j.felt)
-      lines.push({
-        key: `${item.id}-felt`,
-        text: `${item.name} kicked in for you on day ${j.felt.day} (most people: ~day ${j.profile.typicalDay}).`,
-      });
-    for (const d of beforeAfter(item, body, today)) {
-      if (Math.abs(d.change) < (d.metric === "sleepHours" ? 0.2 : 2)) continue;
-      const label =
-        d.metric === "sleepHours"
-          ? "sleep"
-          : d.metric === "restingHr"
-            ? "resting heart rate"
-            : "HRV";
-      lines.push({
-        key: `${item.id}-${d.metric}`,
-        text: `Since ${item.name}, your ${label} went ${d.before} → ${d.after}${d.better ? " — in the right direction" : ""}.`,
-      });
-    }
-    if (item.archived)
-      lines.push({
-        key: `${item.id}-verdict`,
-        text: `${item.name}: ${VERDICT_COPY[item.archived.verdict].toLowerCase()} after ${daysBetween(item.startedAt, item.archived.date) + 1} days.`,
-      });
+  // Supplements started within a week of each other share one before/after: there's no
+  // way to tell which of them moved your numbers, so say so once instead of repeating it.
+  const started = stack
+    .filter((i) => !i.planned)
+    .sort((a, b) => a.startedAt.localeCompare(b.startedAt));
+  const groups: StackItem[][] = [];
+  for (const item of started) {
+    const g = groups.at(-1);
+    if (g && daysBetween(g[0]!.startedAt, item.startedAt) <= 7) g.push(item);
+    else groups.push([item]);
   }
+  const cards = groups
+    .map((g) => {
+      const first = g[0]!;
+      const deltas = beforeAfter(first, body, today).filter(
+        (d) => Math.abs(d.change) >= (d.metric === "sleepHours" ? 0.2 : 2),
+      );
+      const notes: string[] = [];
+      for (const item of g) {
+        const j = journeyFor({ item, logs, effects, decisions, today });
+        if (j.felt)
+          notes.push(
+            `${item.name} kicked in on day ${j.felt.day} (most people: ~day ${j.profile.typicalDay}).`,
+          );
+        if (item.archived)
+          notes.push(
+            `${item.name}: ${VERDICT_COPY[item.archived.verdict].toLowerCase()} after ${daysBetween(item.startedAt, item.archived.date) + 1} days.`,
+          );
+      }
+      return { g, first, deltas, notes };
+    })
+    .filter((c) => c.deltas.length || c.notes.length);
+
+  const names = (g: StackItem[]) =>
+    g.length === 1
+      ? g[0]!.name
+      : `${g
+          .slice(0, -1)
+          .map((i) => i.name)
+          .join(", ")} and ${g.at(-1)!.name}`;
+
   return (
     <section className="rounded-2xl bg-card p-4 shadow-[var(--shadow-border)]">
       <h2 className="font-display text-xl tracking-tight">Your findings</h2>
       <p className="mt-1 text-sm text-muted-foreground">
         What you've learned about your own body — the real point of every experiment.
       </p>
-      {lines.length ? (
-        <ul className="mt-3 space-y-2 text-sm">
-          {lines.map((l) => (
-            <li key={l.key} className="rounded-xl bg-secondary px-3 py-2">
-              {l.text}
-            </li>
+      {cards.length ? (
+        <div className="mt-3 space-y-3">
+          {cards.map(({ g, first, deltas, notes }) => (
+            <div key={first.id} className="rounded-xl bg-secondary p-3">
+              <p className="text-sm font-medium">
+                Since {names(g)}
+                <span className="font-normal text-muted-foreground">
+                  {" "}
+                  · {formatShortDate(first.startedAt)}
+                </span>
+              </p>
+              {deltas.length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {deltas.map((d) => (
+                    <span
+                      key={d.metric}
+                      className={cn(
+                        "rounded-lg px-2 py-1 text-xs",
+                        d.better ? "bg-accent text-accent-foreground" : "bg-card text-muted-foreground",
+                      )}
+                    >
+                      {METRIC_COPY[d.metric].label} {d.before} → {d.after}
+                      {METRIC_COPY[d.metric].unit}
+                      {d.better ? " ✓" : ""}
+                    </span>
+                  ))}
+                </div>
+              )}
+              {g.length > 1 && deltas.length > 0 && (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  These started together, so Supplime can't tell which one moved your numbers. The
+                  taken-vs-missed comparison on each card above can, once you've missed a few days.
+                </p>
+              )}
+              {notes.map((n) => (
+                <p key={n} className="mt-1.5 text-sm">
+                  {n}
+                </p>
+              ))}
+            </div>
           ))}
-        </ul>
+        </div>
       ) : (
         <p className="mt-3 text-sm">
           Nothing confirmed yet. Your first finding arrives with your first “clearly better”

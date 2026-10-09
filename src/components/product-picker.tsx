@@ -98,7 +98,10 @@ export function ProductPicker({
   onPick,
   owned = [],
   exclude: blocked = [],
+  initialType,
 }: {
+  /** Open straight on this supplement's page (e.g. from a Journey suggestion). */
+  initialType?: string;
   onPick: (p: Picked) => void;
   /** What's already in your cabinet. */
   owned?: StackItem[];
@@ -106,7 +109,9 @@ export function ProductPicker({
   exclude?: string[];
 }) {
   const [query, setQuery] = useState("");
-  const [type, setType] = useState<CatalogItem | null>(null);
+  const [type, setType] = useState<CatalogItem | null>(
+    () => CATALOG.find((c) => c.id === initialType) ?? null,
+  );
   // Read about it first, then choose a bottle.
   const [reading, setReading] = useState(true);
   const [brand, setBrand] = useState<string | null>(null);

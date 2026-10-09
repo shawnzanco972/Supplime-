@@ -103,6 +103,7 @@ function Editor({ item, onClose }: { item: StackItem; onClose: () => void }) {
   });
   const set = (patch: Partial<typeof d>) => setD((prev) => ({ ...prev, ...patch }));
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [newBottle, setNewBottle] = useState(false);
   const [slotMode, setSlotMode] = useState<"per-dose" | "daily" | null>(null);
   const [stopOpen, setStopOpen] = useState(false);
 
@@ -203,6 +204,8 @@ function Editor({ item, onClose }: { item: StackItem; onClose: () => void }) {
   }, [draft, item]);
 
   function save() {
+    // A new bottle also counts toward the "stock steward" mark.
+    if (newBottle) refill(item.id, draft.servingsRemaining);
     saveItem(item.id, draft);
     toast(`Saved ${draft.name}`, {
       description:
@@ -602,21 +605,11 @@ function Editor({ item, onClose }: { item: StackItem; onClose: () => void }) {
             <Button
               variant="outline"
               size="sm"
+              disabled={newBottle}
               onClick={() => {
-                const before = item.servingsRemaining;
-                refill(item.id);
-                set({ servingsRemaining: item.servingsPerContainer });
-                toast(`New bottle: ${item.servingsPerContainer} left`, {
-                  description: `Was ${before}. Tap Undo if that was a mistake.`,
-                  duration: 8000,
-                  action: {
-                    label: "Undo",
-                    onClick: () => {
-                      useSupplime.getState().updateItem(item.id, { servingsRemaining: before });
-                      set({ servingsRemaining: before });
-                    },
-                  },
-                });
+                // Only a draft until you save: Undo stays right here.
+                setNewBottle(true);
+                set({ servingsRemaining: d.servingsPerContainer ?? item.servingsPerContainer });
               }}
             >
               New bottle
@@ -634,6 +627,24 @@ function Editor({ item, onClose }: { item: StackItem; onClose: () => void }) {
               </a>
             </Button>
           </div>
+          {newBottle && (
+            <div className="flex items-center justify-between gap-3 rounded-xl bg-accent px-3 py-2 text-sm text-accent-foreground">
+              <span>
+                New bottle: {d.servingsRemaining} left (was {item.servingsRemaining}). Saved when
+                you tap Save.
+              </span>
+              <button
+                type="button"
+                className="min-h-9 shrink-0 font-medium underline"
+                onClick={() => {
+                  setNewBottle(false);
+                  set({ servingsRemaining: item.servingsRemaining });
+                }}
+              >
+                Undo
+              </button>
+            </div>
+          )}
         </Section>
 
         {!item.planned && (

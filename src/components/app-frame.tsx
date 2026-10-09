@@ -168,7 +168,7 @@ export function AppFrame() {
     return (
       <>
         <Onboarding />
-        <Toaster position="top-center" richColors={false} />
+        <Toaster position="top-center" richColors={false} style={{ pointerEvents: "auto" }} />
       </>
     );
   }
@@ -182,7 +182,7 @@ export function AppFrame() {
         {tab === "body" && <BodyView />}
       </AppShell>
       {overlay?.kind === "editor" && <ItemEditor itemId={overlay.itemId} />}
-      {overlay?.kind === "add" && <AddScreen text={overlay.text} />}
+      {overlay?.kind === "add" && <AddScreen text={overlay.text} catalogId={overlay.catalogId} />}
       {overlay?.kind === "evaluate" && <EvaluateSheet itemId={overlay.itemId} />}
       {overlay?.kind === "not-now" && (
         <NotNowSheet itemId={overlay.itemId} slot={overlay.slot} date={overlay.date} />
@@ -190,7 +190,7 @@ export function AppFrame() {
       {overlay?.kind === "settings" && <SettingsScreen />}
       {overlay?.kind === "history" && <HistoryScreen itemId={overlay.itemId} />}
       <ReminderEngine now={now} />
-      <Toaster position="top-center" richColors={false} />
+      <Toaster position="top-center" richColors={false} style={{ pointerEvents: "auto" }} />
     </>
   );
 }

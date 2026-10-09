@@ -26,6 +26,8 @@ export function Screen({
     <DialogPrimitive.Root open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogPrimitive.Portal>
         <DialogPrimitive.Content
+          onPointerDownOutside={keepOpenForToasts}
+          onInteractOutside={keepOpenForToasts}
           aria-describedby={undefined}
           className="fixed inset-0 z-50 flex flex-col bg-background text-foreground focus:outline-none data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:slide-in-from-bottom-4"
         >
@@ -78,6 +80,8 @@ export function Sheet({
       <DialogPrimitive.Portal>
         <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-foreground/30 data-[state=open]:animate-in data-[state=open]:fade-in-0" />
         <DialogPrimitive.Content
+          onPointerDownOutside={keepOpenForToasts}
+          onInteractOutside={keepOpenForToasts}
           aria-describedby={undefined}
           className={cn(
             "fixed inset-x-0 bottom-0 z-50 mx-auto max-h-[88dvh] w-full max-w-xl overflow-y-auto rounded-t-3xl bg-card px-5 pt-3 pb-[max(1.25rem,env(safe-area-inset-bottom))] text-card-foreground shadow-[var(--shadow-border)] focus:outline-none data-[state=open]:animate-in data-[state=open]:slide-in-from-bottom-8",
@@ -119,6 +123,8 @@ export function Confirm({
       <DialogPrimitive.Portal>
         <DialogPrimitive.Overlay className="fixed inset-0 z-[60] bg-foreground/40" />
         <DialogPrimitive.Content
+          onPointerDownOutside={keepOpenForToasts}
+          onInteractOutside={keepOpenForToasts}
           aria-describedby={undefined}
           className="fixed top-1/2 left-1/2 z-[60] w-[min(100%-2rem,24rem)] -translate-x-1/2 -translate-y-1/2 rounded-2xl bg-card p-5 shadow-[var(--shadow-border)] focus:outline-none"
         >
@@ -150,4 +156,10 @@ export function Confirm({
       </DialogPrimitive.Portal>
     </DialogPrimitive.Root>
   );
+}
+
+/** Tapping a message (e.g. its Undo) must not close the panel underneath. */
+function keepOpenForToasts(e: { target: EventTarget | null; preventDefault: () => void }) {
+  const el = e.target as HTMLElement | null;
+  if (el?.closest?.("[data-sonner-toaster]")) e.preventDefault();
 }

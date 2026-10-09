@@ -7,7 +7,7 @@ export type Tab = "today" | "stack" | "journey" | "body";
 export type Overlay =
   | { kind: "editor"; itemId: string }
   | { kind: "evaluate"; itemId: string }
-  | { kind: "add"; text?: string }
+  | { kind: "add"; text?: string; catalogId?: string }
   | { kind: "not-now"; itemId: string; slot: SlotId; date: string }
   | { kind: "settings" }
   | { kind: "history"; itemId?: string }

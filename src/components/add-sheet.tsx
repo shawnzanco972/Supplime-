@@ -16,7 +16,7 @@ import { cn } from "@/lib/utils";
 type Mode = "browse" | "iherb";
 
 /** Add a supplement: browse type → brand → bottle, or paste/share an iHerb product. */
-export function AddScreen({ text }: { text?: string }) {
+export function AddScreen({ text, catalogId }: { text?: string; catalogId?: string }) {
   const close = useNav((s) => s.close);
   const stack = useSupplime((s) => s.stack);
   const profile = useSupplime((s) => s.profile);
@@ -97,6 +97,7 @@ export function AddScreen({ text }: { text?: string }) {
       {mode === "browse" ? (
         <ProductPicker
           owned={stack}
+          initialType={catalogId}
           onPick={(p) =>
             p.switchFor && p.product
               ? setSwitching({ itemId: p.switchFor, product: p.product })

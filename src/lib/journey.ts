@@ -129,7 +129,7 @@ export function journeyFor(input: {
       key: "first-signs",
       day: p.firstSignsDay,
       date: dateOf(p.firstSignsDay),
-      label: p.kind === "acute" ? "First dose felt" : "First signs possible",
+      label: p.kind === "acute" ? "Can work from the first dose" : "First signs possible",
       detail:
         p.kind === "acute" && p.minutes
           ? `Usually ${p.minutes.min}–${p.minutes.max} min after a dose`
