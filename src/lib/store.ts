@@ -421,8 +421,11 @@ export const useSupplime = create<SupplimeStore>()(
         setHydrated: (value) => set({ hydrated: value }),
 
         completeOnboarding: ({ displayName, why, goals, rhythm, habits, items, notifications }) => {
+          // Health Connect can be linked during setup: keep that link and what it synced.
+          const before = get();
           const profile: Profile = {
             ...defaultProfile(),
+            healthSync: before.profile.healthSync,
             displayName: displayName.trim() || "You",
             why: why.trim(),
             goals,
@@ -434,7 +437,7 @@ export const useSupplime = create<SupplimeStore>()(
             joinedAt: appToday(),
             installedAt: appToday(),
           };
-          set({ ...empty(), profile });
+          set({ ...empty(), body: before.body, profile });
           const added = items.map(addWithHistory).filter((x): x is NonNullable<typeof x> => !!x);
           const logs = added.flatMap((a) => a.logs);
           const earliest = logs.map((l) => l.date).sort()[0];
@@ -700,7 +703,8 @@ export const useSupplime = create<SupplimeStore>()(
                   slot,
                   status,
                   at: existing?.at ?? new Date().toISOString(),
-                  reason: status === "skipped" ? (reason ?? existing?.reason ?? "forgot") : undefined,
+                  reason:
+                    status === "skipped" ? (reason ?? existing?.reason ?? "forgot") : undefined,
                   late: isTaken ? existing?.late : undefined,
                   edited: date < appToday() ? true : existing?.edited,
                   away: status === "skipped" && away ? true : undefined,
@@ -713,7 +717,10 @@ export const useSupplime = create<SupplimeStore>()(
                 i.id === itemId
                   ? {
                       ...i,
-                      servingsRemaining: Math.max(0, i.servingsRemaining + delta * i.servingsPerDose),
+                      servingsRemaining: Math.max(
+                        0,
+                        i.servingsRemaining + delta * i.servingsPerDose,
+                      ),
                     }
                   : i,
               )
@@ -850,7 +857,12 @@ export const useSupplime = create<SupplimeStore>()(
             stack: state.stack.map((i) => (i.id === itemId ? { ...i, pendingDose: undefined } : i)),
             // The decision that scheduled it goes too.
             decisions: state.decisions.filter(
-              (d) => !(d.itemId === itemId && d.date === today && (d.kind === "step-up" || d.kind === "lower")),
+              (d) =>
+                !(
+                  d.itemId === itemId &&
+                  d.date === today &&
+                  (d.kind === "step-up" || d.kind === "lower")
+                ),
             ),
           });
         },

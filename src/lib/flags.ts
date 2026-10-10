@@ -275,7 +275,8 @@ export function coffeeTips(input: {
   };
   for (const item of activeStack(stack)) {
     const p = profileFor(item);
-    const done = (slot: SlotId) => today.some((l) => l.itemId === item.id && l.slot === slot && l.status !== "deferred");
+    const done = (slot: SlotId) =>
+      today.some((l) => l.itemId === item.id && l.slot === slot && l.status !== "deferred");
     const open = item.slots
       .filter((s) => !done(s))
       .sort((a, b) => dayMinutes(times[a], wake) - dayMinutes(times[b], wake));

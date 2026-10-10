@@ -718,7 +718,13 @@ describe("v3.1: whole pills, one decision a day, skips vs sleep", () => {
   it("suggests a different capsule when another pill would cross a limit", () => {
     const item = v2Item("l-theanine", 150, ["breakfast", "afternoon"]);
     s().logEffect(item.id, 1, { date: "2026-10-01" });
-    const j = journeyFor({ item: byCat("l-theanine"), logs: s().logs, effects: s().effects, decisions: [], today: TODAY });
+    const j = journeyFor({
+      item: byCat("l-theanine"),
+      logs: s().logs,
+      effects: s().effects,
+      decisions: [],
+      today: TODAY,
+    });
     expect(j.recommendation).toMatchObject({ kind: "step-up", to: 200 });
     expect(j.recommendation.swap?.product.brand).toBe("NOW Foods");
   });
@@ -726,7 +732,13 @@ describe("v3.1: whole pills, one decision a day, skips vs sleep", () => {
   it("stays put at the top dose when no bottle makes a safe step", () => {
     const item = v2Item("l-theanine", 200, ["breakfast", "afternoon"]);
     s().logEffect(item.id, 1, { date: "2026-10-01" });
-    const j = journeyFor({ item: byCat("l-theanine"), logs: s().logs, effects: s().effects, decisions: [], today: TODAY });
+    const j = journeyFor({
+      item: byCat("l-theanine"),
+      logs: s().logs,
+      effects: s().effects,
+      decisions: [],
+      today: TODAY,
+    });
     expect(j.recommendation.title).toBe("At the usual top dose");
   });
 
@@ -746,7 +758,9 @@ describe("v3.1: whole pills, one decision a day, skips vs sleep", () => {
     expect(totalXp(s(), TODAY) - xp).toBe(2); // history XP only
     const n = s().markAway([item.id], "2026-10-01", "2026-10-03");
     expect(n).toBe(3);
-    expect(s().logs.filter((l) => l.status === "skipped" && l.reason === "not-with-me")).toHaveLength(3);
+    expect(
+      s().logs.filter((l) => l.status === "skipped" && l.reason === "not-with-me"),
+    ).toHaveLength(3);
     expect(byCat("lions-mane").servingsRemaining).toBe(left);
   });
 
@@ -759,7 +773,13 @@ describe("v3.1: whole pills, one decision a day, skips vs sleep", () => {
     expect(s().decisions[0]).toMatchObject({ from: 600, to: 1200 });
     expect(after.doseHistory.map((d) => d.amount)).toEqual([600, 1200]);
     expect(after.servingsPerDose).toBe(2);
-    const j = journeyFor({ item: after, logs: s().logs, effects: s().effects, decisions: s().decisions, today: TODAY });
+    const j = journeyFor({
+      item: after,
+      logs: s().logs,
+      effects: s().effects,
+      decisions: s().decisions,
+      today: TODAY,
+    });
     expect(j.changedToday).toBe(true);
     expect(j.recommendation.title).not.toMatch(/early/i);
   });
@@ -780,7 +800,13 @@ describe("v3.1: whole pills, one decision a day, skips vs sleep", () => {
     s().decide(item.id, "keep");
     expect(totalXp(s(), TODAY)).toBe(once);
     expect(once - before).toBe(40);
-    const j = journeyFor({ item: byCat("l-theanine"), logs: s().logs, effects: s().effects, decisions: s().decisions, today: TODAY });
+    const j = journeyFor({
+      item: byCat("l-theanine"),
+      logs: s().logs,
+      effects: s().effects,
+      decisions: s().decisions,
+      today: TODAY,
+    });
     expect(j.phase).toBe("holding");
     expect(j.recommendation.kind).toBe("keep");
     expect(advise({ ...s(), today: TODAY }).increases).toHaveLength(0);
@@ -794,7 +820,11 @@ describe("v3.1: whole pills, one decision a day, skips vs sleep", () => {
       const date = addDays("2026-09-15", i - 1);
       const missed = i % 4 === 0;
       if (!missed) s().logDose(item.id, "bed", "taken", date);
-      body.push({ date: addDays(date, 1), sleepHours: missed ? 5.6 : 7.4, source: "fitbit" as const });
+      body.push({
+        date: addDays(date, 1),
+        sleepHours: missed ? 5.6 : 7.4,
+        source: "fitbit" as const,
+      });
     }
     const impact = skipImpact(byCat("melatonin"), s().logs, body, TODAY);
     expect(impact[0]).toMatchObject({ metric: "sleepHours", taken: 7.4, missed: 5.6, helps: true });
@@ -807,7 +837,12 @@ describe("v3.3: dose changes start on the right day", () => {
   it("a step-up decided after today's dose starts tomorrow", () => {
     setup(["lions-mane"]);
     const id = byCat("lions-mane").id;
-    s().updateItem(id, { amount: 600, servingsPerDose: 1, startedAt: "2026-09-01", doseHistory: [{ date: "2026-09-01", amount: 600, unit: "mg" }] });
+    s().updateItem(id, {
+      amount: 600,
+      servingsPerDose: 1,
+      startedAt: "2026-09-01",
+      doseHistory: [{ date: "2026-09-01", amount: 600, unit: "mg" }],
+    });
     s().logDose(id, byCat("lions-mane").slots[0]!, "taken", TODAY);
     s().decide(id, "step-up", { to: 1200 });
     const item = byCat("lions-mane");
@@ -824,7 +859,11 @@ describe("v3.3: dose changes start on the right day", () => {
   it("starts today when nothing was taken yet, and can be cancelled", () => {
     setup(["lions-mane"]);
     const id = byCat("lions-mane").id;
-    s().updateItem(id, { amount: 600, startedAt: "2026-09-01", doseHistory: [{ date: "2026-09-01", amount: 600, unit: "mg" }] });
+    s().updateItem(id, {
+      amount: 600,
+      startedAt: "2026-09-01",
+      doseHistory: [{ date: "2026-09-01", amount: 600, unit: "mg" }],
+    });
     s().decide(id, "step-up", { to: 1200 });
     expect(byCat("lions-mane").amount).toBe(1200);
     s().decide(id, "lower", { to: 600, startOn: "2026-10-07" });
@@ -881,7 +920,14 @@ describe("v3.5: coffee that fits", () => {
     return id;
   };
   const tips = (cup: string) =>
-    coffeeTips({ stack: s().stack, logs: s().logs, profile: s().profile, times: s().profile.slotTimes, date: TODAY, cup });
+    coffeeTips({
+      stack: s().stack,
+      logs: s().logs,
+      profile: s().profile,
+      times: s().profile.slotTimes,
+      date: TODAY,
+      cup,
+    });
 
   it("doesn't pair an afternoon dose with this morning's coffee", () => {
     theanineTwice();
@@ -915,8 +961,16 @@ describe("v3.5: bottles, orders and short links", () => {
   it("switching to a same-strength bottle keeps the timeline", () => {
     setup(["l-theanine"]);
     const id = byCat("l-theanine").id;
-    s().updateItem(id, { amount: 200, startedAt: "2026-09-01", doseHistory: [{ date: "2026-09-01", amount: 200, unit: "mg" }] });
-    const now = PRODUCT_BY_ID["now-theanine-200"] ?? Object.values(PRODUCT_BY_ID).find((p) => p.catalogId === "l-theanine" && p.dosePerUnit === 200)!;
+    s().updateItem(id, {
+      amount: 200,
+      startedAt: "2026-09-01",
+      doseHistory: [{ date: "2026-09-01", amount: 200, unit: "mg" }],
+    });
+    const now =
+      PRODUCT_BY_ID["now-theanine-200"] ??
+      Object.values(PRODUCT_BY_ID).find(
+        (p) => p.catalogId === "l-theanine" && p.dosePerUnit === 200,
+      )!;
     s().switchBottle(id, { product: { ...now }, units: 1, bottle: 120, startOn: TODAY });
     const item = byCat("l-theanine");
     expect(item.product?.brand).toBe(now.brand);
@@ -953,7 +1007,10 @@ describe("v3.6: only days you take it count", () => {
   const omegaBarelyTaken = () => {
     setup(["omega-3"]);
     const id = byCat("omega-3").id;
-    s().updateItem(id, { startedAt: addDays(TODAY, -38), doseHistory: [{ date: addDays(TODAY, -38), amount: 600, unit: "mg" }] });
+    s().updateItem(id, {
+      startedAt: addDays(TODAY, -38),
+      doseHistory: [{ date: addDays(TODAY, -38), amount: 600, unit: "mg" }],
+    });
     const slot = byCat("omega-3").slots[0]!;
     for (let i = 38; i > 33; i--) s().logDose(id, slot, "taken", addDays(TODAY, -i));
     return id;
@@ -961,7 +1018,13 @@ describe("v3.6: only days you take it count", () => {
 
   it("runs the clock on days taken, not calendar days", () => {
     omegaBarelyTaken();
-    const j = journeyFor({ item: byCat("omega-3"), logs: s().logs, effects: s().effects, decisions: s().decisions, today: TODAY });
+    const j = journeyFor({
+      item: byCat("omega-3"),
+      logs: s().logs,
+      effects: s().effects,
+      decisions: s().decisions,
+      today: TODAY,
+    });
     expect(j.calendarDay).toBe(39);
     expect(j.day).toBe(6); // 5 taken + today, still open
     expect(j.phase).toBe("offtrack");
@@ -986,8 +1049,124 @@ describe("v3.6: only days you take it count", () => {
   it("starting over gives a fresh, fair clock", () => {
     const id = omegaBarelyTaken();
     s().updateItem(id, { startedAt: TODAY });
-    const j = journeyFor({ item: byCat("omega-3"), logs: s().logs, effects: s().effects, decisions: s().decisions, today: TODAY });
+    const j = journeyFor({
+      item: byCat("omega-3"),
+      logs: s().logs,
+      effects: s().effects,
+      decisions: s().decisions,
+      today: TODAY,
+    });
     expect(j.day).toBe(1);
     expect(j.offTrack).toBe(false);
+  });
+});
+
+describe("v3.7: giving it more time means days in a row", () => {
+  const run = (
+    taken: number[],
+    missed: number[] = [],
+    awayDays: number[] = [],
+    decidedAgo = 12,
+  ) => {
+    setup(["lions-mane"]);
+    const id = byCat("lions-mane").id;
+    s().updateItem(id, { startedAt: addDays(TODAY, -100) });
+    for (let i = 100; i > 20; i--) s().logDose(id, "breakfast", "taken", addDays(TODAY, -i));
+    for (const i of taken) s().logDose(id, "breakfast", "taken", addDays(TODAY, -i));
+    for (const i of missed) s().logDose(id, "breakfast", "missed", addDays(TODAY, -i));
+    for (const i of awayDays) s().markAway([id], addDays(TODAY, -i), addDays(TODAY, -i));
+    useSupplime.setState({
+      decisions: [{ id: "d1", itemId: id, date: addDays(TODAY, -decidedAgo), kind: "more-time" }],
+    });
+    return journeyFor({
+      item: byCat("lions-mane"),
+      logs: s().logs,
+      effects: s().effects,
+      decisions: s().decisions,
+      today: TODAY,
+    });
+  };
+  const days = (from: number, to: number) =>
+    Array.from({ length: from - to + 1 }, (_, k) => from - k);
+
+  it("counts a streak since the decision and shows it mid-way", () => {
+    // Missed on day -12 (decision day), then 10 straight days up to yesterday.
+    const j = run(days(10, 1), [12, 11]);
+    expect(j.streakGoal).toMatchObject({ done: 10, goal: 14 });
+    expect(j.holding).toBe(true);
+    // Today is still open: today + 3 more days makes 14.
+    expect(j.nextEval).toBe(addDays(TODAY, 3));
+    expect(j.recommendation.title).toContain("10 of 14 days in a row");
+  });
+
+  it("restarts the count after a missed day, but away days only pause it", () => {
+    const broken = run([...days(12, 6), ...days(4, 0)], [5]);
+    expect(broken.streakGoal?.done).toBe(5);
+    const paused = run([...days(12, 6), ...days(4, 0)], [], [5]);
+    expect(paused.streakGoal?.done).toBe(12);
+  });
+
+  it("asks again once you reach 14 in a row", () => {
+    const almost = run(days(12, 0));
+    expect(almost.streakGoal?.done).toBe(13);
+    expect(almost.nextEval).toBe(addDays(TODAY, 1));
+    expect(almost.evaluateDue).toBe(false);
+    const done = run(days(13, 0), [], [], 13);
+    expect(done.streakGoal?.done).toBe(14);
+    expect(done.evaluateDue).toBe(true);
+  });
+});
+
+describe("v3.7: set up with your AI", () => {
+  it("reads an assistant's setup block, even with chatter and smart quotes around it", async () => {
+    const { parseSetup } = await import("@/lib/ai-setup");
+    const answer = `Great, here's your setup!
+
+\`\`\`json
+{
+  "supplime": 1,
+  "name": "Dana",
+  "why": "Calmer workdays",
+  "goals": ["calm", "sleep", "nonsense"],
+  "rhythm": { "wake": "7:30", "wakeVaries": true, "eatsBreakfast": false, "firstMeal": "12:00", "lastMeal": "20:00", "bed": "23:30" },
+  "habits": { "coffee": true, "coffeeTime": "08:00", "alcohol": "sometimes" },
+  "supplements": [
+    { "name": "Magnesium glycinate", "amount": 200, "unit": "mg", "perDay": 1, "times": ["bed"], "since": "2026-09-01", "consistency": "most" },
+    { "name": "L-Theanine", "amount": 200, "unit": "mg", "times": ["breakfast", "bogus"], "since": "2027-01-01" },
+    { "name": "Mystery Blend", "amount": 2, "unit": "scoops", "times": ["wake"] },
+  ]
+}
+\`\`\`
+Paste that into Supplime.`;
+    const x = parseSetup(answer, TODAY)!;
+    expect(x.name).toBe("Dana");
+    expect(x.goals).toEqual(["calm", "sleep"]);
+    expect(x.rhythm).toMatchObject({
+      wake: "07:30",
+      flexibleWake: true,
+      eatsBreakfast: false,
+      firstMeal: "12:00",
+    });
+    expect(x.habits).toMatchObject({ coffee: true, alcohol: "sometimes" });
+    expect(x.items).toHaveLength(3);
+    expect(x.items[0]).toMatchObject({
+      catalogId: "magnesium",
+      slots: ["bed"],
+      startedAt: "2026-09-01",
+      backfill: "most",
+    });
+    // A future start date falls back to today; unknown windows are dropped.
+    expect(x.items[1]).toMatchObject({
+      catalogId: "l-theanine",
+      slots: ["breakfast"],
+      startedAt: TODAY,
+    });
+    expect(x.items[2]).toMatchObject({ catalogId: null, name: "Mystery Blend", unit: "scoops" });
+    expect(x.custom).toEqual(["Mystery Blend"]);
+  });
+
+  it("returns nothing for text without a setup block", async () => {
+    const { parseSetup } = await import("@/lib/ai-setup");
+    expect(parseSetup("Sure! What's your name?", TODAY)).toBeNull();
   });
 });

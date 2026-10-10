@@ -730,13 +730,15 @@ const DOSE_RULES: Record<
   melatonin: {
     steps: [0.3, 0.5, 1, 3],
     maxDaily: 3,
-    source: "0.3 mg worked as well as 3 mg without next-day carry-over (Zhdanova 2001, pubmed 11600532)",
+    source:
+      "0.3 mg worked as well as 3 mg without next-day carry-over (Zhdanova 2001, pubmed 11600532)",
   },
   "omega-3": {
     minDays: 56,
     steps: [600, 900, 1000, 1200, 2000],
     maxDaily: 3000,
-    source: "EFSA: up to 5 g EPA+DHA/day raises no safety concern; omega-3 index plateaus in 8–12 weeks",
+    source:
+      "EFSA: up to 5 g EPA+DHA/day raises no safety concern; omega-3 index plateaus in 8–12 weeks",
   },
   magnesium: {
     maxDaily: 350,
@@ -856,7 +858,8 @@ export function unitStrength(item: StackItem): {
   known: boolean;
   source: "bottle" | "label" | "guess" | "none";
 } {
-  if (item.product?.dosePerUnit) return { amount: item.product.dosePerUnit, known: true, source: "bottle" };
+  if (item.product?.dosePerUnit)
+    return { amount: item.product.dosePerUnit, known: true, source: "bottle" };
   const parsed = parseServingLabel(item.servingLabel);
   if (parsed) return { amount: parsed, known: true, source: "label" };
   // Guess from real bottles of this supplement: the strongest pill your starting dose is

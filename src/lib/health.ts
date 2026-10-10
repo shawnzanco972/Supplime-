@@ -131,7 +131,12 @@ export async function syncHealth(days = 45): Promise<number> {
     if (s.value > 0) row(dayOf(s.startDate)).steps = Math.round(s.value);
 
   const active = await safe(() =>
-    Health.queryAggregated({ dataType: "exerciseTime", ...range, bucket: "day", aggregation: "sum" }),
+    Health.queryAggregated({
+      dataType: "exerciseTime",
+      ...range,
+      bucket: "day",
+      aggregation: "sum",
+    }),
   );
   for (const s of active?.samples ?? [])
     if (s.value > 0) row(dayOf(s.startDate)).activeMin = Math.round(s.value);

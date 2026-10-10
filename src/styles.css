@@ -31,8 +31,7 @@
   --font-sans: "Figtree", ui-sans-serif, system-ui, sans-serif;
   --font-display: "Fraunces Variable", "Fraunces", ui-serif, Georgia, "Times New Roman", serif;
   --shadow-border:
-    0px 0px 0px 1px rgba(28, 30, 27, 0.06),
-    0px 1px 2px -1px rgba(28, 30, 27, 0.06),
+    0px 0px 0px 1px rgba(28, 30, 27, 0.06), 0px 1px 2px -1px rgba(28, 30, 27, 0.06),
     0px 2px 8px 0px rgba(28, 30, 27, 0.04);
 }
 

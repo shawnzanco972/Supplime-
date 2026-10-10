@@ -58,9 +58,7 @@ export function dayGrid(input: {
   const usual = median(
     body.filter((b) => typeof b.sleepHours === "number").map((b) => b.sleepHours!),
   );
-  const poorSleep = sleep.map(
-    (h) => h !== undefined && usual > 0 && (h < usual - 0.75 || h < 6),
-  );
+  const poorSleep = sleep.map((h) => h !== undefined && usual > 0 && (h < usual - 0.75 || h < 6));
 
   // Bad nights that followed a missed dose.
   let note: string | null = null;

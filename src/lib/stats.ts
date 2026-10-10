@@ -82,7 +82,9 @@ export function needsCheckIn(
     const first = mine.map((l) => l.date).sort()[0];
     if (first) {
       const from = addDays(today, -13) > first ? addDays(today, -13) : first;
-      const taken = new Set(mine.filter((l) => l.status === "taken" && l.date >= from).map((l) => l.date));
+      const taken = new Set(
+        mine.filter((l) => l.status === "taken" && l.date >= from).map((l) => l.date),
+      );
       const days = daysBetween(from, today) + 1;
       if (days >= 5 && taken.size / days < 0.5) return false;
     }

@@ -1,4 +1,4 @@
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
 import { useMemo, useState } from "react";
 import {
   Line,
@@ -278,11 +278,10 @@ function FeelSection({
     };
   });
   const journal = [...body]
-    .filter((b) => b.notes)
-    .sort((a, b) => b.date.localeCompare(a.date))
-    .slice(0, 10);
+    .filter((b) => b.notes?.trim())
+    .sort((a, b) => b.date.localeCompare(a.date));
   return (
-    <section className="space-y-4">
+    <section id="how-you-feel" className="scroll-mt-4 space-y-4">
       <div>
         <h2 className="font-display text-xl tracking-tight">How you feel</h2>
         <p className="text-sm text-muted-foreground">
@@ -377,25 +376,80 @@ function FeelSection({
         </div>
       )}
 
-      {journal.length > 0 && (
-        <div className="rounded-2xl bg-card p-4 shadow-[var(--shadow-border)]">
-          <p className="font-medium">Your notes</p>
-          <ul className="mt-2 divide-y divide-border">
-            {journal.map((b) => (
-              <li key={b.date} className="py-2">
-                <p className="text-xs text-muted-foreground">
-                  {formatShortDate(b.date)}
-                  {typeof b.energy === "number"
-                    ? ` · energy ${b.energy} · mood ${b.mood ?? "–"} · focus ${b.focus ?? "–"}${typeof b.calm === "number" ? ` · calm ${b.calm}` : ""}`
-                    : ""}
-                </p>
-                <p className="mt-0.5 text-sm">{b.notes}</p>
-              </li>
-            ))}
-          </ul>
+      {journal.length > 0 && <NotesBrowser notes={journal} />}
+    </section>
+  );
+}
+
+/**
+ * Past notes, hidden until you ask. One day at a time with ‹ › to step between days that
+ * have a note, so it never turns into a long list.
+ */
+function NotesBrowser({ notes }: { notes: BodyLog[] }) {
+  const [open, setOpen] = useState(false);
+  const [i, setI] = useState(0);
+  const b = notes[Math.min(i, notes.length - 1)];
+  return (
+    <div className="rounded-2xl bg-card shadow-[var(--shadow-border)]">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        className="flex w-full items-center justify-between px-4 py-3 text-left"
+      >
+        <span className="font-medium">Your notes</span>
+        <span className="flex items-center gap-1 text-xs text-muted-foreground">
+          {notes.length} {notes.length === 1 ? "day" : "days"}
+          <ChevronDown className={cn("size-4 transition-transform", open && "rotate-180")} />
+        </span>
+      </button>
+      {open && (
+        <div className="border-t border-border px-4 pt-2 pb-4">
+          <div className="flex items-center justify-between">
+            <button
+              type="button"
+              onClick={() => setI((n) => Math.min(notes.length - 1, n + 1))}
+              disabled={i >= notes.length - 1}
+              aria-label="Older note"
+              className="flex size-9 items-center justify-center rounded-full text-muted-foreground hover:bg-secondary disabled:opacity-30"
+            >
+              <ChevronLeft className="size-4" />
+            </button>
+            <label className="relative text-sm font-medium tabular-nums">
+              {formatShortDate(b.date)}
+              <select
+                aria-label="Jump to a day"
+                value={b.date}
+                onChange={(e) => setI(notes.findIndex((n) => n.date === e.target.value))}
+                className="absolute inset-0 cursor-pointer opacity-0"
+              >
+                {notes.map((n) => (
+                  <option key={n.date} value={n.date}>
+                    {formatShortDate(n.date)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button
+              type="button"
+              onClick={() => setI((n) => Math.max(0, n - 1))}
+              disabled={i <= 0}
+              aria-label="Newer note"
+              className="flex size-9 items-center justify-center rounded-full text-muted-foreground hover:bg-secondary disabled:opacity-30"
+            >
+              <ChevronRight className="size-4" />
+            </button>
+          </div>
+          {typeof b.energy === "number" && (
+            <p className="text-center text-xs text-muted-foreground">
+              energy {b.energy} · mood {b.mood ?? "–"} · focus {b.focus ?? "–"}
+              {typeof b.calm === "number" ? ` · calm ${b.calm}` : ""}
+            </p>
+          )}
+          <p className="mt-3 text-sm whitespace-pre-wrap">{b.notes}</p>
         </div>
       )}
-    </section>
+    </div>
   );
 }
 

@@ -1,10 +1,12 @@
-import { Activity, Archive, Leaf, Settings2, Sparkles } from "lucide-react";
-import type { ReactNode } from "react";
+import { Activity, Archive, Settings2, Sparkles } from "lucide-react";
+import type { ComponentType, ReactNode } from "react";
 import { useNav, type Tab } from "@/lib/nav";
 import { cn } from "@/lib/utils";
 
-const NAV: { to: Tab; label: string; icon: typeof Leaf }[] = [
-  { to: "today", label: "Today", icon: Leaf },
+type NavIcon = ComponentType<{ className?: string; strokeWidth?: number }>;
+
+const NAV: { to: Tab; label: string; icon: NavIcon }[] = [
+  { to: "today", label: "Today", icon: LimeMark },
   { to: "stack", label: "Cabinet", icon: Archive },
   { to: "journey", label: "Journey", icon: Sparkles },
   { to: "body", label: "Body", icon: Activity },
@@ -75,7 +77,7 @@ export function AppShell({
         </div>
       </div>
 
-      <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-card/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden">
+      <nav className="fixed inset-x-0 bottom-0 z-40 bg-primary pb-[env(safe-area-inset-bottom)] text-primary-foreground md:hidden">
         <div className="mx-auto grid max-w-lg grid-cols-4">
           {NAV.map((item) => {
             const active = pathname === item.to;
@@ -87,16 +89,16 @@ export function AppShell({
                 aria-current={active ? "page" : undefined}
                 className={cn(
                   "relative flex h-16 flex-col items-center justify-center gap-1 text-[11px] transition-colors",
-                  active ? "font-semibold text-primary" : "font-medium text-muted-foreground",
+                  active ? "font-semibold text-white" : "font-medium text-white/65",
                 )}
               >
                 {active && (
-                  <span className="absolute top-0 h-0.5 w-10 rounded-full bg-primary" aria-hidden />
+                  <span className="absolute top-0 h-0.5 w-10 rounded-full bg-white" aria-hidden />
                 )}
                 <span
                   className={cn(
                     "flex h-8 w-14 items-center justify-center rounded-full transition-colors",
-                    active ? "bg-accent text-primary" : "active:bg-secondary",
+                    active ? "bg-white/18" : "active:bg-white/10",
                   )}
                 >
                   <item.icon className="size-5" strokeWidth={active ? 2.4 : 1.8} />
@@ -120,5 +122,18 @@ export function Wordmark({ className, reversed }: { className?: string; reversed
       className={cn("w-auto select-none", className)}
       draggable={false}
     />
+  );
+}
+
+/** The lime-slice "e" on its own, in the current text color (used as the Today icon). */
+export function LimeMark({ className }: { className?: string; strokeWidth?: number }) {
+  return (
+    <svg viewBox="0 0 100 100" className={className} fill="currentColor" aria-hidden>
+      <path
+        opacity={0.75}
+        d="M57.21 58.4 L83.52,58.4 A34.56 34.56 0 0 1 69.02,78.86 ZM50 54.08 L65.48,80.9 A34.56 34.56 0 0 1 34.52,80.9 ZM42.79 58.4 L30.98,78.86 A34.56 34.56 0 0 1 16.48,58.4 ZM42.79 41.6 L16.48,41.6 A34.56 34.56 0 0 1 30.98,21.14 ZM50 45.92 L34.52,19.1 A34.56 34.56 0 0 1 65.48,19.1 ZM57.21 41.6 L69.02,21.14 A34.56 34.56 0 0 1 83.52,41.6 Z"
+      />
+      <path d="M84.53,83.34 A48 48 0 1 1 98 50 L88.4 50 A38.4 38.4 0 1 0 77.62,76.67 Z M8.72 45.44 H97.78 V54.56 H8.72 Z" />
+    </svg>
   );
 }

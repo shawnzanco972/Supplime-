@@ -52,8 +52,7 @@ export function effectiveClock(item: StackItem, logs: DoseLog[], from: string, t
   const reached: string[] = [];
   let n = 0;
   for (let d = from; d <= today; d = addDays(d, 1)) {
-    const counts =
-      !firstLog || d < firstLog || taken.has(d) || (d === today && !resolved.has(d));
+    const counts = !firstLog || d < firstLog || taken.has(d) || (d === today && !resolved.has(d));
     if (counts) reached[++n] = d;
   }
   return {
@@ -61,6 +60,28 @@ export function effectiveClock(item: StackItem, logs: DoseLog[], from: string, t
     /** The date you reached (or, taking it daily from now, will reach) day `k`. */
     dateOf: (k: number) => (k <= n ? (reached[Math.max(1, k)] ?? from) : addDays(today, k - n)),
   };
+}
+
+/** After "give it more time": this many days in a row before the next check. */
+export const STREAK_GOAL = 14;
+
+/**
+ * Days in a row you've taken it, counting back from today (or yesterday while today is
+ * still open). Away days pause the run without breaking it; a missed or skipped day ends
+ * it. Days before you started logging count, like on the main clock.
+ */
+export function streakFor(item: StackItem, logs: DoseLog[], today: string, since?: string) {
+  const mine = logs.filter((l) => l.itemId === item.id);
+  const taken = new Set(mine.filter((l) => l.status === "taken").map((l) => l.date));
+  const away = new Set(mine.filter((l) => l.away).map((l) => l.date));
+  const firstLog = mine.map((l) => l.date).sort()[0];
+  const floor = since && since > item.startedAt ? since : item.startedAt;
+  let run = 0;
+  for (let d = taken.has(today) ? today : addDays(today, -1); d >= floor; d = addDays(d, -1)) {
+    if (taken.has(d) || !firstLog || d < firstLog) run++;
+    else if (!away.has(d)) break;
+  }
+  return { run, todayTaken: taken.has(today) };
 }
 
 /**
@@ -99,7 +120,9 @@ export function journeyFor(input: {
   // Days you were away count as a pause, not as misses.
   const awayDates = new Set(
     logs
-      .filter((l) => l.itemId === item.id && l.away && l.date >= trackedFrom && !takenDates.has(l.date))
+      .filter(
+        (l) => l.itemId === item.id && l.away && l.date >= trackedFrom && !takenDates.has(l.date),
+      )
       .map((l) => l.date),
   );
   const trackedDays = firstLog
@@ -118,18 +141,29 @@ export function journeyFor(input: {
     .sort((a, b) => a.date.localeCompare(b.date));
   const lastDecision = itemDecisions.at(-1);
 
+  const streak = streakFor(item, logs, today);
+  // "More time" means two weeks in a row, not two weeks on the calendar: a missed day
+  // restarts the count (away days just pause it).
+  const run =
+    lastDecision?.kind === "more-time" ? streakFor(item, logs, today, lastDecision.date) : null;
+  const streakGoal = run
+    ? { goal: STREAK_GOAL, done: Math.min(STREAK_GOAL, run.run), since: lastDecision!.date }
+    : null;
+
   // When is the next "keep or not" verdict due?
   const baseEval = clock.dateOf(p.evaluateDay);
   let nextEval = baseEval;
-  if (lastDecision) {
+  if (run) {
+    const left = STREAK_GOAL - run.run;
+    const after = left <= 0 ? today : addDays(today, run.todayTaken ? left : left - 1);
+    nextEval = after > baseEval ? after : baseEval;
+  } else if (lastDecision) {
     const wait =
-      lastDecision.kind === "more-time"
-        ? 14
-        : lastDecision.kind === "keep"
-          ? 60
-          : lastDecision.kind === "step-up" || lastDecision.kind === "lower"
-            ? Math.max(p.minDaysBeforeIncrease, 14)
-            : 9999;
+      lastDecision.kind === "keep"
+        ? 60
+        : lastDecision.kind === "step-up" || lastDecision.kind === "lower"
+          ? Math.max(p.minDaysBeforeIncrease, 14)
+          : 9999;
     const after = addDays(lastDecision.date, wait);
     nextEval = after > baseEval ? after : baseEval;
   }
@@ -143,8 +177,7 @@ export function journeyFor(input: {
     (lastDecision.kind === "keep" || lastDecision.kind === "more-time") &&
     today < nextEval;
   // You changed the dose today: you can still revise it freely until you take it.
-  const changedToday =
-    step.date === today && item.doseHistory.length > 1 && item.startedAt < today;
+  const changedToday = step.date === today && item.doseHistory.length > 1 && item.startedAt < today;
   const previousStep = changedToday ? item.doseHistory.at(-2) : undefined;
 
   const dateOf = (d: number) => clock.dateOf(d);
@@ -154,7 +187,9 @@ export function journeyFor(input: {
       ? day + daysBetween(today, date)
       : Math.max(1, effectiveClock(item, logs, item.startedAt, date).days);
   const stepStartEff =
-    stepStart > item.startedAt ? effectiveClock(item, logs, item.startedAt, addDays(stepStart, -1)).days : 0;
+    stepStart > item.startedAt
+      ? effectiveClock(item, logs, item.startedAt, addDays(stepStart, -1)).days
+      : 0;
   const milestones: Milestone[] = [
     {
       key: "start",
@@ -195,8 +230,14 @@ export function journeyFor(input: {
       key: "evaluate",
       day: effDayOn(nextEval),
       date: nextEval,
-      label: lastDecision ? "Next check" : "Verdict day",
-      detail: "Decide: keep, adjust the dose, or stop",
+      label: streakGoal
+        ? `${STREAK_GOAL} days in a row`
+        : lastDecision
+          ? "Next check"
+          : "Verdict day",
+      detail: streakGoal
+        ? `${streakGoal.done} of ${STREAK_GOAL} so far. A missed day starts the count again; away days don't.`
+        : "Decide: keep, adjust the dose, or stop",
       reached: evaluateDue,
     },
   ];
@@ -205,7 +246,13 @@ export function journeyFor(input: {
 
   const working = !!last && last.rating >= 2 && !recentSide;
   // Taken on fewer than half the days: nothing about it can be judged yet.
-  const offTrack = consistency !== null && trackedDays >= 7 && consistency < 0.5;
+  // A week in a row (or a few days into a "more time" run) puts you back on track.
+  const offTrack =
+    consistency !== null &&
+    trackedDays >= 7 &&
+    consistency < 0.5 &&
+    streak.run < 7 &&
+    !(streakGoal && streakGoal.done >= 3);
   let phase: Phase;
   if (item.archived) phase = "stopped";
   else if (offTrack && !item.pendingDose) phase = "offtrack";
@@ -217,49 +264,54 @@ export function journeyFor(input: {
   else phase = "building";
 
   const pd = item.pendingDose;
-  const recommendation: Recommendation = offTrack && !pd
-    ? {
-        kind: "more-time",
-        title: "Not on track",
-        why: `Taken on ${takenDates.size} of ${trackedDays} days, so its clock is at day ${day}, not day ${calendarDay}. Nothing can be judged until you take it most days${lastDecision?.kind === "more-time" ? ": the extra time you gave it only counts on days you take it" : ""}.`,
-      }
-    : pd
-    ? {
-        kind: "keep",
-        title: `${pd.kind === "step-up" ? "Stepping up" : "Lowering"} to ${trimNum(pd.amount)} ${item.unit} on ${formatShortDate(pd.date)}`,
-        why: `Today stays at ${doseLabel(item, item.amount)}. Your new dose starts ${pd.date === addDays(today, 1) ? "tomorrow" : formatShortDate(pd.date)}.`,
-      }
-    : changedToday
-    ? {
-        kind: "keep",
-        title: `New dose: ${doseLabel(item, item.amount)} from today`,
-        why: `Changed today, so you can still adjust it without penalty. The next dose review opens ${formatShortDate(doseReviewDate)}.`,
-      }
-    : holding && lastDecision
+  const recommendation: Recommendation =
+    offTrack && !pd
       ? {
-          kind: lastDecision.kind,
-          title:
-            lastDecision.kind === "keep"
-              ? `Keeping ${doseLabel(item, item.amount)}`
-              : "Giving it more time",
-          why: `You decided this on ${formatShortDate(lastDecision.date)}. Supplime checks in again on ${formatShortDate(nextEval)}.`,
+          kind: "more-time",
+          title: "Not on track",
+          why: `Taken on ${takenDates.size} of ${trackedDays} days, so its clock is at day ${day}, not day ${calendarDay}. Nothing can be judged until you take it most days${lastDecision?.kind === "more-time" ? `: the extra time you gave it needs ${STREAK_GOAL} days in a row` : ""}.`,
         }
-      : recommend({
-    item,
-    day,
-    atDose,
-    consistency,
-    trackedDays,
-    working,
-    recentSide,
-    lastRating: last?.rating ?? null,
-    checkIns: effectHistory(item, effects).length,
-    noStepUp: p.noStepUp,
-    minDays: p.minDaysBeforeIncrease,
-    typicalDay: p.typicalDay,
-    evaluateDay: p.evaluateDay,
-    maxDaily: p.maxDaily,
-  });
+      : pd
+        ? {
+            kind: "keep",
+            title: `${pd.kind === "step-up" ? "Stepping up" : "Lowering"} to ${trimNum(pd.amount)} ${item.unit} on ${formatShortDate(pd.date)}`,
+            why: `Today stays at ${doseLabel(item, item.amount)}. Your new dose starts ${pd.date === addDays(today, 1) ? "tomorrow" : formatShortDate(pd.date)}.`,
+          }
+        : changedToday
+          ? {
+              kind: "keep",
+              title: `New dose: ${doseLabel(item, item.amount)} from today`,
+              why: `Changed today, so you can still adjust it without penalty. The next dose review opens ${formatShortDate(doseReviewDate)}.`,
+            }
+          : holding && lastDecision
+            ? {
+                kind: lastDecision.kind,
+                title:
+                  lastDecision.kind === "keep"
+                    ? `Keeping ${doseLabel(item, item.amount)}`
+                    : streakGoal
+                      ? `Giving it more time: ${streakGoal.done} of ${STREAK_GOAL} days in a row`
+                      : "Giving it more time",
+                why: streakGoal
+                  ? `You decided this on ${formatShortDate(lastDecision.date)}. Take it ${STREAK_GOAL} days in a row and Supplime checks in again${nextEval > today ? `, on ${formatShortDate(nextEval)} if you don't miss one` : ""}.${streakGoal.done > 0 && streakGoal.done < STREAK_GOAL ? ` You're ${streakGoal.done >= STREAK_GOAL / 2 ? "past halfway" : "on your way"}.` : ""}`
+                  : `You decided this on ${formatShortDate(lastDecision.date)}. Supplime checks in again on ${formatShortDate(nextEval)}.`,
+              }
+            : recommend({
+                item,
+                day,
+                atDose,
+                consistency,
+                trackedDays,
+                working,
+                recentSide,
+                lastRating: last?.rating ?? null,
+                checkIns: effectHistory(item, effects).length,
+                noStepUp: p.noStepUp,
+                minDays: p.minDaysBeforeIncrease,
+                typicalDay: p.typicalDay,
+                evaluateDay: p.evaluateDay,
+                maxDaily: p.maxDaily,
+              });
 
   // Missed days at this dose push the expected onset back (cumulative supplements).
   const missedDays = Math.max(0, trackedDays - takenDates.size);
@@ -296,6 +348,10 @@ export function journeyFor(input: {
     /** Calendar days that didn't count (missed or away). */
     behind: Math.max(0, calendarDay - day),
     offTrack,
+    /** Days in a row right now (today counts once taken). */
+    streak: streak.run,
+    /** While you're giving it more time: progress toward 14 days in a row. */
+    streakGoal,
     /** 0–1 position on the timeline to the verdict day, for progress bars. */
     progress: Math.min(1, day / Math.max(p.evaluateDay, daysBetween(item.startedAt, nextEval) + 1)),
   };
@@ -443,12 +499,14 @@ export function doseLabel(item: StackItem, amount: number) {
   if (strength.source !== "none" && Math.abs(ratio - Math.round(ratio)) > 0.01)
     return `${base} (needs a lower-strength bottle)`;
   const pills = pillsFor(item, amount);
-  if (!item.product && !unitStrength(item).known) return pills > 1 ? `${base} (${pills} pills)` : base;
+  if (!item.product && !unitStrength(item).known)
+    return pills > 1 ? `${base} (${pills} pills)` : base;
   const form = item.product?.form === "veg capsule" ? "capsule" : (item.product?.form ?? "capsule");
   return `${base} (${pills} ${form}${pills === 1 ? "" : "s"})`;
 }
 
-const trimNum = (n: number) => (Number.isInteger(n) ? String(n) : String(Math.round(n * 100) / 100));
+const trimNum = (n: number) =>
+  Number.isInteger(n) ? String(n) : String(Math.round(n * 100) / 100);
 
 export const PHASE_COPY: Record<
   Phase,

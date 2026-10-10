@@ -259,7 +259,33 @@ const TONE = {
   good: "bg-primary text-primary-foreground",
 } as const;
 
-export function JourneyCard({
+export /** "Give it more time" progress: one segment per day in a row. */
+function StreakGoal({ done, goal }: { done: number; goal: number }) {
+  return (
+    <div className="mb-3 rounded-xl bg-secondary/60 p-3">
+      <div className="flex items-baseline justify-between text-xs">
+        <span className="font-medium">
+          {done >= goal
+            ? `${goal} days in a row: time to check in`
+            : `${done} of ${goal} days in a row`}
+        </span>
+        <span className="text-muted-foreground">
+          {done >= goal ? "" : done >= goal / 2 ? "past halfway" : "missed days restart it"}
+        </span>
+      </div>
+      <div className="mt-2 flex gap-0.5" aria-hidden>
+        {Array.from({ length: goal }, (_, i) => (
+          <span
+            key={i}
+            className={cn("h-1.5 flex-1 rounded-full", i < done ? "bg-primary" : "bg-muted")}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function JourneyCard({
   j,
   onEvaluate,
   onOpen,
@@ -291,6 +317,7 @@ export function JourneyCard({
               {j.consistency !== null ? ` (${Math.round(j.consistency * 100)}%)` : ""} · {j.atDose}d
               at {doseLabel(j.item, j.item.amount)}
               {j.item.slots.length > 1 ? ` ×${j.item.slots.length}/day` : ""}
+              {j.streak >= 3 ? ` · ${j.streak} in a row` : ""}
             </p>
           </button>
           <span
@@ -357,6 +384,7 @@ export function JourneyCard({
           </span>
         </button>
         {steps && <TimelineSteps j={j} />}
+        {j.streakGoal && <StreakGoal done={j.streakGoal.done} goal={j.streakGoal.goal} />}
 
         <p className="text-sm">
           {j.felt ? (
@@ -482,7 +510,9 @@ function StartOver({ item }: { item: StackItem }) {
               size="sm"
               onClick={() => {
                 updateItem(item.id, { startedAt: appToday() });
-                toast(`${item.name}: day 1 again`, { description: "A fresh, fair test from today." });
+                toast(`${item.name}: day 1 again`, {
+                  description: "A fresh, fair test from today.",
+                });
               }}
             >
               Start over today
@@ -508,7 +538,13 @@ function StartOver({ item }: { item: StackItem }) {
 /** Every point on a supplement's timeline, in order: what it means and when. */
 function TimelineSteps({ j }: { j: Journey }) {
   const today = appToday();
-  const rows: { day: number; date: string; label: string; detail: string; state: "done" | "now" | "next" }[] = [
+  const rows: {
+    day: number;
+    date: string;
+    label: string;
+    detail: string;
+    state: "done" | "now" | "next";
+  }[] = [
     ...j.milestones.map((m) => ({
       day: m.day,
       date: m.date,
@@ -548,7 +584,11 @@ function TimelineSteps({ j }: { j: Journey }) {
           <span
             className={cn(
               "absolute top-1 -left-[23px] size-3 rounded-full border-2 border-card",
-              r.state === "done" ? "bg-primary" : r.state === "now" ? "bg-warn" : "bg-muted-foreground/40",
+              r.state === "done"
+                ? "bg-primary"
+                : r.state === "now"
+                  ? "bg-warn"
+                  : "bg-muted-foreground/40",
             )}
           />
           <p className={cn("text-sm", r.state === "now" ? "font-semibold" : "font-medium")}>
@@ -1285,7 +1325,9 @@ function Findings() {
                       key={d.metric}
                       className={cn(
                         "rounded-lg px-2 py-1 text-xs",
-                        d.better ? "bg-accent text-accent-foreground" : "bg-card text-muted-foreground",
+                        d.better
+                          ? "bg-accent text-accent-foreground"
+                          : "bg-card text-muted-foreground",
                       )}
                     >
                       {METRIC_COPY[d.metric].label} {d.before} → {d.after}

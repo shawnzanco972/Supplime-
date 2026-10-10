@@ -122,9 +122,16 @@ export function AppFrame() {
       onSkip: (date, slot, itemId) => {
         useSupplime.getState().logDose(itemId, slot, "skipped", date, { reason: "not-with-me" });
       },
-      onOpen: (_date, _slot, kind) => useNav.getState().go(kind === "feel" ? "body" : "today"),
+      onOpen: (_date, _slot, kind) =>
+        kind === "feel"
+          ? useNav.getState().go("body", "how-you-feel")
+          : useNav.getState().go("today"),
     });
-    const stopShares = listenForShares((text) => useNav.getState().open({ kind: "add", text }));
+    const stopShares = listenForShares((text) =>
+      useSupplime.getState().profile.onboarded
+        ? useNav.getState().open({ kind: "add", text })
+        : useNav.setState({ inbox: text }),
+    );
     void maybeSyncHealth();
     void maybeDetectWake();
     const resume = CapApp.addListener("resume", () => {

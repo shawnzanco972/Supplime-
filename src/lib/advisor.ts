@@ -14,7 +14,7 @@ import type {
   SlotId,
   StackItem,
 } from "./types";
-import { addDays, daysBetween, uid } from "./utils";
+import { addDays, daysBetween, formatShortDate, uid } from "./utils";
 
 /* ------------------------------------------------------------ check-ins */
 
@@ -301,7 +301,7 @@ export function advise(state: {
     const p = profileFor(newest);
     const wait = Math.min(21, p.kind === "acute" ? 7 : p.typicalDay);
     slotOpensOn = addDays(newest.startedAt, wait);
-    slotReason = `${newest.name} started ${daysBetween(newest.startedAt, today)} days ago; give it ${wait} days alone so you can tell what's working.`;
+    slotReason = `${newest.name} started ${agoText(daysBetween(newest.startedAt, today))}; give it ${wait} days alone so you can tell what's working.`;
   }
   const slotOpen = slotOpensOn <= today;
 
@@ -347,7 +347,9 @@ export function advise(state: {
           : x.evidence === "moderate"
             ? "Moderate evidence"
             : "Early evidence",
-      when: slotOpen ? "You can start it now." : `Best started after ${slotOpensOn}.`,
+      when: slotOpen
+        ? "You can start it now."
+        : `Best started after ${formatShortDate(slotOpensOn)}.`,
       timing: `${slotNames(x.timing.best)}${x.timing.food.length === 1 && x.timing.food[0] === "with" ? ", with food" : ""}. Usually felt around day ${p.typicalDay}.`,
       watch: x.watch.slice(0, 3),
       products: productsFor(cat.id).map((pr) => `${pr.brand} ${pr.name}`),
@@ -394,7 +396,12 @@ export function advise(state: {
     if (upSwap && !j.holding && !j.changedToday && j.phase !== "working") {
       const reviewOn = j.doseReviewOpen ? today : j.doseReviewDate;
       if (daysBetween(today, reviewOn) <= lead + 7)
-        orderAhead.push({ item, swap: upSwap, reviewOn, orderBy: orderByDate(reviewOn, today, lead) });
+        orderAhead.push({
+          item,
+          swap: upSwap,
+          reviewOn,
+          orderBy: orderByDate(reviewOn, today, lead),
+        });
     }
     if (j.recommendation.kind === "step-up" && j.recommendation.to) {
       increases.push({
@@ -478,10 +485,16 @@ export function fitCheck(
   const active = stack.filter(
     (i) => !i.archived && !i.paused && !i.planned && i.id !== state.excludeId,
   );
-  const mine = profileFor({ catalogId, slots: [], foodTiming: cat.foodTiming } as unknown as StackItem);
+  const mine = profileFor({
+    catalogId,
+    slots: [],
+    foodTiming: cat.foodTiming,
+  } as unknown as StackItem);
 
   // Same supplement already in the cabinet.
-  const same = stack.filter((i) => i.catalogId === catalogId && !i.archived && i.id !== state.excludeId);
+  const same = stack.filter(
+    (i) => i.catalogId === catalogId && !i.archived && i.id !== state.excludeId,
+  );
   for (const s of same) {
     const daily = s.amount * Math.max(1, s.slots.length);
     notes.push({
@@ -535,9 +548,12 @@ export function fitCheck(
       opens > from
         ? {
             tone: "info",
-            text: `Best started after ${opens}: ${newest.name} is still settling in, and starting one new thing at a time shows you what works.`,
+            text: `Best started after ${formatShortDate(opens)}: ${newest.name} is still settling in, and starting one new thing at a time shows you what works.`,
           }
-        : { tone: "good", text: "Your newest supplement has settled in: a good time to start something new." },
+        : {
+            tone: "good",
+            text: "Your newest supplement has settled in: a good time to start something new.",
+          },
     );
   }
   if (mine.needsLabs)
@@ -545,3 +561,5 @@ export function fitCheck(
   if (cat.caution) notes.push({ tone: "info", text: cat.caution });
   return notes;
 }
+
+const agoText = (n: number) => (n <= 0 ? "today" : n === 1 ? "yesterday" : `${n} days ago`);

@@ -16,7 +16,10 @@ export type Overlay =
 type NavStore = {
   tab: Tab;
   overlay: Overlay;
-  go: (tab: Tab) => void;
+  /** Text shared to Supplime before setup is finished (e.g. a setup block from an AI app). */
+  inbox: string | null;
+  /** Switch tabs. `anchor` scrolls to an element id once the tab has rendered. */
+  go: (tab: Tab, anchor?: string) => void;
   open: (overlay: Overlay) => void;
   close: () => void;
 };
@@ -24,10 +27,23 @@ type NavStore = {
 export const useNav = create<NavStore>()((set) => ({
   tab: "today",
   overlay: null,
-  go: (tab) => {
+  inbox: null,
+  go: (tab, anchor) => {
     set({ tab });
-    if (typeof window !== "undefined") window.scrollTo({ top: 0 });
+    if (typeof window === "undefined") return;
+    window.scrollTo({ top: 0 });
+    if (anchor) scrollToAnchor(anchor);
   },
   open: (overlay) => set({ overlay }),
   close: () => set({ overlay: null }),
 }));
+
+/** Waits for the element to render (tabs mount lazily), then scrolls it into view. */
+function scrollToAnchor(id: string, tries = 60) {
+  const el = document.getElementById(id);
+  if (el) {
+    el.scrollIntoView({ behavior: "smooth", block: "start" });
+    return;
+  }
+  if (tries > 0) window.setTimeout(() => scrollToAnchor(id, tries - 1), 100);
+}

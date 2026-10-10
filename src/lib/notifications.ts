@@ -171,7 +171,10 @@ const doseLabel = (name: string, amount: number, unit: string) =>
   `${name} ${amount}${unit === "mg" || unit === "g" ? "" : " "}${unit}`;
 
 /** Evening check-in: on by default, an hour before bed. */
-export function feelReminder(profile: { rhythm: { bed: string; wake: string }; feelReminder?: { enabled: boolean; time?: string } }) {
+export function feelReminder(profile: {
+  rhythm: { bed: string; wake: string };
+  feelReminder?: { enabled: boolean; time?: string };
+}) {
   const bed = dayMinutes(profile.rhythm.bed, profile.rhythm.wake);
   return {
     enabled: profile.feelReminder?.enabled ?? true,

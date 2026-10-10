@@ -63,7 +63,7 @@ const BRANDS = [
 const FORMS =
   "veg(?:etarian|gie)?\\s*capsules|veggie\\s*caps|vcaps|plant[- ]based\\s*capsules|capsules|softgels|liquid\\s*softgels|tablets|chewables|gummies|lozenges|caplets|capsule|tablet|softgel|gummy";
 
-const norm = (s: string) =>
+export const norm = (s: string) =>
   s
     .toLowerCase()
     .replace(/['’]/g, "")
@@ -192,7 +192,9 @@ export async function resolveShortLink(text: string): Promise<string | null> {
     const { CapacitorHttp } = await import("@capacitor/core");
     const res = await CapacitorHttp.get({
       url,
-      headers: { "User-Agent": "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/126 Mobile" },
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/126 Mobile",
+      },
       responseType: "text",
     });
     const finalUrl = typeof res.url === "string" ? res.url : "";
