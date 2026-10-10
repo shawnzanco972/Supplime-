@@ -360,6 +360,8 @@ export type Profile = {
   coachNotes?: { date: string; text: string; source: string }[];
   /** Health Connect (Fitbit / Google Health) sync. */
   healthSync?: { enabled: boolean; lastSync?: string; scope?: number };
+  /** "Time to eat" a little before your first and/or second meal (off unless you turn it on). */
+  mealReminders?: { first?: boolean; second?: boolean };
   /** Put watch data (Health Connect) into coach briefings. Off unless you turn it on. */
   coachWatchData?: boolean;
   /** Evening "how was your day?" reminder (on unless you turn it off). */

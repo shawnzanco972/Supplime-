@@ -10,7 +10,8 @@ export type Overlay =
   | { kind: "add"; text?: string; catalogId?: string }
   | { kind: "not-now"; itemId: string; slot: SlotId; date: string }
   | { kind: "settings" }
-  | { kind: "history"; itemId?: string }
+  | { kind: "history"; itemId?: string; date?: string }
+  | { kind: "times"; itemId?: string }
   | { kind: "ai-import"; text?: string }
   | { kind: "privacy" }
   | null;

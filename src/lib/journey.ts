@@ -153,9 +153,12 @@ export function journeyFor(input: {
   // When is the next "keep or not" verdict due?
   const baseEval = clock.dateOf(p.evaluateDay);
   let nextEval = baseEval;
+  // Does the streak set the date, or is the verdict day later anyway?
+  let streakSetsDate = false;
   if (run) {
     const left = STREAK_GOAL - run.run;
     const after = left <= 0 ? today : addDays(today, run.todayTaken ? left : left - 1);
+    streakSetsDate = after >= baseEval;
     nextEval = after > baseEval ? after : baseEval;
   } else if (lastDecision) {
     const wait =
@@ -230,13 +233,16 @@ export function journeyFor(input: {
       key: "evaluate",
       day: effDayOn(nextEval),
       date: nextEval,
-      label: streakGoal
-        ? `${STREAK_GOAL} days in a row`
-        : lastDecision
-          ? "Next check"
-          : "Verdict day",
+      label:
+        streakGoal && streakSetsDate
+          ? `${STREAK_GOAL} days in a row`
+          : streakGoal
+            ? "Verdict day"
+            : lastDecision
+              ? "Next check"
+              : "Verdict day",
       detail: streakGoal
-        ? `${streakGoal.done} of ${STREAK_GOAL} so far. A missed day starts the count again; away days don't.`
+        ? `${streakGoal.done} of ${STREAK_GOAL} days in a row so far. A missed day starts the count again; away days don't.`
         : "Decide: keep, adjust the dose, or stop",
       reached: evaluateDue,
     },

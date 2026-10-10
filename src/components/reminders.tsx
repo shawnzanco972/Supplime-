@@ -33,6 +33,8 @@ export function ReminderEngine({ now }: { now: number }) {
     profile.reminderLeadMinutes,
     profile.nagMinutes,
     profile.onboarded,
+    profile.feelReminder,
+    profile.mealReminders,
     profile.rhythm,
     days,
     now,

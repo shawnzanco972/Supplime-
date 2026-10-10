@@ -9,7 +9,7 @@ import { cellFor, type Cell } from "@/lib/insights";
 import { useNav } from "@/lib/nav";
 import { appToday, useSupplime } from "@/lib/store";
 import { SLOTS, type SlotId } from "@/lib/types";
-import { addDays, cn, formatShortDate, parseISODate } from "@/lib/utils";
+import { addDays, cn, formatClock, formatShortDate, parseISODate } from "@/lib/utils";
 
 const CELL: Record<Cell, string> = {
   taken: "bg-primary text-primary-foreground",
@@ -20,6 +20,12 @@ const CELL: Record<Cell, string> = {
   none: "text-muted-foreground/50",
 };
 const WEEKDAYS = ["M", "T", "W", "T", "F", "S", "S"];
+/** Which six-week page a date falls on (0 = the one ending this week). */
+function pageOf(date: string, today: string) {
+  const start = addDays(today, -((parseISODate(today).getDay() + 6) % 7) - 35);
+  return date >= start ? 0 : Math.ceil((daysBetweenInclusive(date, start) - 1) / 42);
+}
+
 const daysBetweenInclusive = (a: string, b: string) =>
   Math.round((parseISODate(b).getTime() - parseISODate(a).getTime()) / 864e5) + 1;
 const slotLabel = (id: SlotId) => SLOTS.find((s) => s.id === id)?.label ?? id;
@@ -28,17 +34,19 @@ const slotLabel = (id: SlotId) => SLOTS.find((s) => s.id === id)?.label ?? id;
  * Fix your record: tap any day of the last 6 weeks to mark each dose taken or skipped,
  * or mark a whole trip as "away". Pills left follow your changes.
  */
-export function HistoryScreen({ itemId }: { itemId?: string }) {
+export function HistoryScreen({ itemId, date }: { itemId?: string; date?: string }) {
   const close = useNav((s) => s.close);
+  const openOverlay = useNav((s) => s.open);
   const { stack, logs, setDoseRecord, markAway, fillDays } = useSupplime();
   const today = appToday();
   const items = stack.filter((i) => !i.planned && i.startedAt <= today);
   const [selected, setSelected] = useState(itemId ?? items[0]?.id);
   const item = items.find((i) => i.id === selected) ?? items[0];
-  const [day, setDay] = useState<string | null>(null);
+  const [day, setDay] = useState<string | null>(date ?? null);
   const [away, setAway] = useState({ from: addDays(today, -7), to: addDays(today, -1), all: true });
   // Pages of six weeks: 0 = ending this week, 1 = the six before, …
-  const [page, setPage] = useState(0);
+  const [page, setPage] = useState(() => (date ? pageOf(date, today) : 0));
+
   // Long-press a day to pick several, then fix them in one go.
   const [picked, setPicked] = useState<string[] | null>(null);
   const press = useRef<{ timer: number; fired: boolean } | null>(null);
@@ -137,6 +145,14 @@ export function HistoryScreen({ itemId }: { itemId?: string }) {
             </Chip>
           ))}
         </div>
+
+        <button
+          type="button"
+          onClick={() => openOverlay({ kind: "times", itemId: item.id })}
+          className="text-sm font-medium text-primary underline-offset-2 hover:underline"
+        >
+          See what time you took them →
+        </button>
 
         <Section
           title={item.name}
@@ -274,9 +290,22 @@ export function HistoryScreen({ itemId }: { itemId?: string }) {
               {slots.map((slot) => {
                 const r = record(slot, day);
                 const v = r?.status === "taken" ? "taken" : r ? "skipped" : null;
+                // The time you logged it, when you used the app that day.
+                const at =
+                  r?.status === "taken" && !r.edited && !r.backfill ? new Date(r.at) : null;
                 return (
                   <div key={slot} className="flex items-center justify-between gap-2">
-                    <span className="text-sm">{slotLabel(slot)}</span>
+                    <span className="text-sm">
+                      {slotLabel(slot)}
+                      {at && !Number.isNaN(at.getTime()) && (
+                        <span className="block text-xs text-muted-foreground tabular-nums">
+                          logged{" "}
+                          {formatClock(
+                            `${String(at.getHours()).padStart(2, "0")}:${String(at.getMinutes()).padStart(2, "0")}`,
+                          )}
+                        </span>
+                      )}
+                    </span>
                     <div className="flex gap-1">
                       {(
                         [

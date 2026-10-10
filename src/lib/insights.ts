@@ -1,5 +1,5 @@
-import { activeStack } from "./protocol";
-import type { BodyLog, DoseLog, StackItem } from "./types";
+import { activeStack, dayMinutes, effectiveSlotTimes } from "./protocol";
+import type { BodyLog, DayContext, DoseLog, Profile, SlotId, StackItem } from "./types";
 import { addDays } from "./utils";
 
 /**
@@ -135,3 +135,99 @@ export const METRIC_COPY = {
   hrv: { label: "HRV", unit: " ms" },
   restingHr: { label: "Resting HR", unit: " bpm" },
 } as const;
+
+export type TimedDose = {
+  item: StackItem;
+  slot: SlotId;
+  /** Minutes into your day (after midnight = 24:xx). */
+  minutes: number;
+  /** Its window's time that day. */
+  planned: number;
+  /** More than 2 h after its window. */
+  late: boolean;
+};
+
+export type TimedDay = {
+  date: string;
+  doses: TimedDose[];
+  /** Skipped or missed that day (logged live). */
+  skipped: { item: StackItem; slot: SlotId }[];
+  /** Watch numbers for that day; sleep is the night after. */
+  vitals: { restingHr?: number; hrv?: number; steps?: number; sleepAfter?: number; spo2?: number };
+  feel?: Pick<BodyLog, "energy" | "mood" | "focus" | "calm" | "notes">;
+};
+
+/**
+ * When you actually took each supplement, day by day, next to that day's numbers. Only
+ * doses you logged on the day count: fixes made later and reconstructed history have no
+ * real time.
+ */
+export function dosesByTime(input: {
+  stack: StackItem[];
+  logs: DoseLog[];
+  body: BodyLog[];
+  days: DayContext[];
+  profile: Pick<Profile, "slotTimes" | "rhythm">;
+  today: string;
+  count: number;
+}): TimedDay[] {
+  const { stack, logs, body, days, profile, today, count } = input;
+  const wake = profile.rhythm.wake;
+  const byId = new Map(stack.map((i) => [i.id, i]));
+  const byDate = new Map(body.map((b) => [b.date, b]));
+  const out: TimedDay[] = [];
+  for (let k = 0; k < count; k++) {
+    const date = addDays(today, -k);
+    const { times } = effectiveSlotTimes(profile, days, date);
+    const live = logs.filter((l) => l.date === date && !l.edited && !l.backfill);
+    const doses: TimedDose[] = [];
+    const skipped: TimedDay["skipped"] = [];
+    for (const l of live) {
+      const item = byId.get(l.itemId);
+      if (!item) continue;
+      if (l.status === "taken") {
+        const d = new Date(l.at);
+        if (Number.isNaN(d.getTime())) continue;
+        const hhmm = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+        const minutes = dayMinutes(hhmm, wake);
+        const planned = dayMinutes(times[l.slot], wake);
+        doses.push({ item, slot: l.slot, minutes, planned, late: minutes - planned > 120 });
+      } else if ((l.status === "skipped" || l.status === "missed") && !l.away) {
+        skipped.push({ item, slot: l.slot });
+      }
+    }
+    const b = byDate.get(date);
+    const after = byDate.get(addDays(date, 1));
+    out.push({
+      date,
+      doses: doses.sort((a, b2) => a.minutes - b2.minutes),
+      skipped,
+      vitals: {
+        restingHr: b?.restingHr,
+        hrv: b?.hrv,
+        steps: b?.steps,
+        spo2: b?.spo2,
+        sleepAfter: after?.sleepHours,
+      },
+      feel:
+        b && (b.energy !== undefined || b.notes)
+          ? { energy: b.energy, mood: b.mood, focus: b.focus, calm: b.calm, notes: b.notes }
+          : undefined,
+    });
+  }
+  return out;
+}
+
+/** Typical time and spread per supplement over the given days. */
+export function timeSummary(daysIn: TimedDay[], itemId: string) {
+  const mins = daysIn.flatMap((d) => d.doses.filter((x) => x.item.id === itemId));
+  if (!mins.length) return null;
+  const sorted = mins.map((x) => x.minutes).sort((a, b) => a - b);
+  return {
+    count: mins.length,
+    typical: sorted[Math.floor(sorted.length / 2)]!,
+    earliest: sorted[0]!,
+    latest: sorted.at(-1)!,
+    late: mins.filter((x) => x.late).length,
+  };
+}

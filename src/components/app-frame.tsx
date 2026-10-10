@@ -10,6 +10,7 @@ import { EvaluateSheet, JourneyView } from "@/components/journey-view";
 import { NotNowSheet } from "@/components/not-now-sheet";
 import { AiImportScreen } from "@/components/ai-setup";
 import { PrivacyScreen } from "@/components/privacy-screen";
+import { TimesScreen } from "@/components/times-screen";
 import { Onboarding } from "@/components/onboarding";
 import { ReminderEngine } from "@/components/reminders";
 import { SettingsScreen } from "@/components/settings-sheet";
@@ -201,7 +202,14 @@ export function AppFrame() {
         <NotNowSheet itemId={overlay.itemId} slot={overlay.slot} date={overlay.date} />
       )}
       {overlay?.kind === "settings" && <SettingsScreen />}
-      {overlay?.kind === "history" && <HistoryScreen itemId={overlay.itemId} />}
+      {overlay?.kind === "history" && (
+        <HistoryScreen
+          key={`${overlay.itemId}-${overlay.date}`}
+          itemId={overlay.itemId}
+          date={overlay.date}
+        />
+      )}
+      {overlay?.kind === "times" && <TimesScreen itemId={overlay.itemId} />}
       {overlay?.kind === "ai-import" && <AiImportScreen text={overlay.text} />}
       {overlay?.kind === "privacy" && <PrivacyScreen />}
       <ReminderEngine now={now} />

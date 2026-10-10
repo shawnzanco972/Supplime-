@@ -219,6 +219,33 @@ export function SettingsScreen() {
               />
             </div>
           )}
+          <div>
+            <Label>Remind me to eat</Label>
+            <p className="mt-1 text-xs text-muted-foreground">
+              15 min before the meal, for busy days. It names anything waiting on food, and skips
+              days you've already logged that meal.
+            </p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {(
+                [
+                  ["first", "First meal"],
+                  ["second", "Second meal"],
+                ] as const
+              ).map(([k, label]) => (
+                <Chip
+                  key={k}
+                  on={!!profile.mealReminders?.[k]}
+                  onClick={() =>
+                    setProfile({
+                      mealReminders: { ...profile.mealReminders, [k]: !profile.mealReminders?.[k] },
+                    })
+                  }
+                >
+                  {label}
+                </Chip>
+              ))}
+            </div>
+          </div>
         </Section>
 
         <Section

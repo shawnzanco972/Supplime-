@@ -1,4 +1,4 @@
-import { Lock, Sparkles } from "lucide-react";
+import { ChevronRight, Lock, Sparkles } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Chip } from "@/components/fields";
@@ -18,16 +18,10 @@ import { doseLabel, journeyFor, PHASE_COPY, type Journey } from "@/lib/journey";
 import { ALL_FACTS, nextStep, unitStrength } from "@/lib/knowledge";
 import { capsuleSwap, iherbUrl, orderByDate, type Swap } from "@/lib/swap";
 import { useNav } from "@/lib/nav";
-import {
-  BADGE_COPY,
-  EFFECT_COPY,
-  bodyAverages,
-  dayAdherence,
-  daysOfStock,
-  effectHistory,
-} from "@/lib/stats";
+import { journeyPath } from "@/lib/path";
+import { EFFECT_COPY, bodyAverages, dayAdherence, daysOfStock, effectHistory } from "@/lib/stats";
 import { appToday, useSupplime } from "@/lib/store";
-import type { BadgeId, DecisionKind, StackItem, Verdict } from "@/lib/types";
+import type { DecisionKind, StackItem, Verdict } from "@/lib/types";
 import { addDays, cn, daysBetween, formatShortDate } from "@/lib/utils";
 
 export function JourneyView() {
@@ -52,6 +46,8 @@ export function JourneyView() {
 
       <LevelCard game={game} />
       <StreakDots days={game.lastDays} />
+
+      <YourPath />
 
       <WhatsNext />
 
@@ -111,21 +107,6 @@ export function JourneyView() {
         </section>
       )}
 
-      <section>
-        <h2 className="font-display text-xl tracking-tight">Marks</h2>
-        <div className="mt-3 flex flex-wrap gap-2">
-          {(Object.keys(BADGE_COPY) as BadgeId[]).map((id) => {
-            const earned = profile.badges.includes(id);
-            return (
-              <Badge key={id} variant={earned ? "solid" : "default"} title={BADGE_COPY[id].detail}>
-                {!earned && <Lock className="mr-1 size-3" />}
-                {BADGE_COPY[id].name}
-              </Badge>
-            );
-          })}
-        </div>
-      </section>
-
       <Coach />
 
       <p className="pb-4 text-xs text-muted-foreground">
@@ -147,6 +128,119 @@ const CELL: Record<Cell, string> = {
 };
 
 /** Every supplement over the last 14 days, with your sleep underneath. */
+/** The journey as a path: what's ahead (dated), where you are, and what's behind you. */
+function YourPath() {
+  const { stack, logs, effects, decisions, profile } = useSupplime();
+  const today = appToday();
+  const [all, setAll] = useState(false);
+  const { ahead, behind } = useMemo(
+    () => journeyPath({ stack, logs, effects, decisions, profile, today }),
+    [stack, logs, effects, decisions, profile, today],
+  );
+  if (!ahead.length && behind.length <= 1) return null;
+  const next = ahead.slice(0, 4).reverse();
+  const past = all ? behind : behind.slice(0, 5);
+  const when = (d: string) => (d === today ? "Today" : formatShortDate(d));
+  return (
+    <section className="rounded-2xl bg-card p-4 shadow-[var(--shadow-border)]">
+      <h2 className="font-display text-xl tracking-tight">Your path</h2>
+      <ol className="relative mt-3">
+        {next.map((e, i) => (
+          <PathRow
+            key={`a${i}`}
+            date={when(e.date)}
+            title={e.title}
+            detail={e.detail}
+            state="ahead"
+          />
+        ))}
+        <li className="relative flex gap-3 pb-4">
+          <span className="w-14 shrink-0 pt-0.5 text-right text-xs font-semibold text-primary">
+            Today
+          </span>
+          <span className="relative flex w-4 shrink-0 justify-center">
+            <span className="absolute inset-y-0 w-px bg-border" />
+            <span className="relative mt-0.5 size-4 rounded-full border-[3px] border-card bg-[#A7C79A] ring-2 ring-primary" />
+          </span>
+          <span className="text-sm font-medium">You are here</span>
+        </li>
+        {past.map((e, i) => (
+          <PathRow
+            key={`b${i}`}
+            date={when(e.date)}
+            title={e.title}
+            detail={e.detail}
+            state={e.kind === "felt" ? "highlight" : e.kind === "stop" ? "muted" : "done"}
+            last={i === past.length - 1}
+          />
+        ))}
+      </ol>
+      {behind.length > 5 && (
+        <button
+          type="button"
+          onClick={() => setAll(!all)}
+          className="mt-1 min-h-9 text-xs font-medium text-primary underline-offset-2 hover:underline"
+        >
+          {all ? "Show less" : `Show the whole path (${behind.length})`}
+        </button>
+      )}
+    </section>
+  );
+}
+
+function PathRow({
+  date,
+  title,
+  detail,
+  state,
+  last,
+}: {
+  date: string;
+  title: string;
+  detail?: string;
+  state: "ahead" | "done" | "highlight" | "muted";
+  last?: boolean;
+}) {
+  return (
+    <li className="relative flex gap-3 pb-4">
+      <span className="w-14 shrink-0 pt-0.5 text-right text-xs text-muted-foreground tabular-nums">
+        {date}
+      </span>
+      <span className="relative flex w-4 shrink-0 justify-center">
+        {!last && (
+          <span
+            className={cn(
+              "absolute top-0 -bottom-0 w-px",
+              state === "ahead"
+                ? "border-l border-dashed border-muted-foreground/40 bg-transparent"
+                : "bg-border",
+            )}
+          />
+        )}
+        <span
+          className={cn(
+            "relative mt-1 size-2.5 rounded-full",
+            state === "ahead" && "border-2 border-muted-foreground/50 bg-card",
+            state === "done" && "bg-primary",
+            state === "highlight" && "bg-[#A7C79A] ring-2 ring-primary",
+            state === "muted" && "bg-muted-foreground/40",
+          )}
+        />
+      </span>
+      <span
+        className={cn(
+          "min-w-0 text-sm",
+          state === "ahead" && "text-muted-foreground",
+          state === "muted" && "text-muted-foreground",
+        )}
+      >
+        {title}
+        {detail && <span className="block text-xs text-muted-foreground">{detail}</span>}
+      </span>
+    </li>
+  );
+}
+
 function DayGridCard() {
   const { stack, logs, body } = useSupplime();
   const openOverlay = useNav((s) => s.open);
@@ -168,6 +262,7 @@ function DayGridCard() {
           Fix past days
         </button>
       </div>
+
       <div className="mt-3 space-y-1.5" role="table" aria-label="Doses per day">
         {g.rows.map((r) => (
           <div key={r.item.id} className="grid items-center gap-[3px]" style={cols} role="row">
@@ -220,6 +315,14 @@ function DayGridCard() {
           </p>
         )
       )}
+      <button
+        type="button"
+        onClick={() => openOverlay({ kind: "times" })}
+        className="mt-3 flex min-h-10 w-full items-center justify-between rounded-xl bg-secondary px-3 text-sm font-medium"
+      >
+        What time you took them, week by week
+        <ChevronRight className="size-4 text-muted-foreground" />
+      </button>
     </section>
   );
 }

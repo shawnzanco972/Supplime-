@@ -1,11 +1,12 @@
 import { LocalNotifications, type LocalNotificationSchema } from "@capacitor/local-notifications";
 import { CATALOG_BY_ID } from "./catalog";
+import { profileFor } from "./knowledge";
 import { timingFor } from "./timing";
 import { isNative } from "./platform";
 import { activeStack, dayMinutes, effectiveSlotTimes, logicalDate, planDay } from "./protocol";
 import { daysOfStock, remainingKeys } from "./stats";
 import { useSupplime } from "./store";
-import { SLOTS, WAKE_RELATIVE, type SlotId } from "./types";
+import { SLOTS, WAKE_RELATIVE, type SlotId, type StackItem } from "./types";
 import { addDays, formatClock, formatHHMM, formatShortDate, parseISODate } from "./utils";
 
 /**
@@ -35,14 +36,17 @@ const CATCHUP_BASE = 7000;
 const SNOOZE_BASE = 8000;
 const STOCK_BASE = 9000;
 const FEEL_BASE = 9500;
+const MEAL_BASE = 9600;
+/** A meal reminder comes this long before the meal window. */
+const MEAL_LEAD = 15;
 
 type Extra = {
   date?: string;
   slot?: SlotId;
   itemId?: string;
   catchUp?: boolean;
-  /** "feel": the evening "how was your day?" reminder. */
-  kind?: "feel";
+  /** "feel": the evening "how was your day?" reminder. "meal": time to eat. */
+  kind?: "feel" | "meal";
 };
 
 let setupDone = false;
@@ -220,9 +224,15 @@ export function buildSchedule(now = new Date()): LocalNotificationSchema[] {
       const emptyFirst =
         plan.waves.some((w) => w.key === "empty") && plan.waves.some((w) => w.key !== "empty");
       const body = names.join(", ");
+      const food = open.filter((d) => needsFood(d.item)).map((d) => d.item.name);
+      const ateNow = (days.find((x) => x.date === date)?.mealsAt ?? []).some(
+        (m) => Math.abs(dayMinutes(m, wake) - minutes) <= 90,
+      );
       const hint = emptyFirst
         ? "Empty-stomach ones first, then eat."
-        : (plan.waves[0]?.instruction ?? "");
+        : food.length && !ateNow
+          ? `${food.join(", ")} ${food.length === 1 ? "needs" : "need"} food: haven't eaten yet? Have something small first.`
+          : (plan.waves[0]?.instruction ?? "");
       const base = {
         channelId: CHANNEL,
         actionTypeId: ACTION_DOSE,
@@ -329,6 +339,44 @@ export function buildSchedule(now = new Date()): LocalNotificationSchema[] {
     }
   }
 
+  // "Time to eat" before busy-day meals, naming what's waiting on food.
+  const meals = profile.mealReminders ?? {};
+  for (let day = 0; day < 7; day++) {
+    const date = addDays(today, day);
+    const { times } = effectiveSlotTimes(profile, days, date);
+    const ate = (days.find((d) => d.date === date)?.mealsAt ?? []).map((m) => dayMinutes(m, wake));
+    const remaining = remainingKeys(stack, logs, date);
+    (["breakfast", "lunch"] as const).forEach((slot, k) => {
+      if (!(k === 0 ? meals.first : meals.second)) return;
+      if (slot === "breakfast" && !profile.rhythm.eatsBreakfast) return;
+      const mealAt = dayMinutes(times[slot], wake);
+      // Already ate around then: no reminder.
+      if (ate.some((m) => Math.abs(m - mealAt) <= 120)) return;
+      const when = at(date, mealAt - MEAL_LEAD);
+      if (when.getTime() <= now.getTime()) return;
+      const needFood = activeStack(stack)
+        .filter(
+          (i) => i.startedAt <= date && i.slots.includes(slot) && remaining.has(`${i.id}:${slot}`),
+        )
+        .filter((i) => needsFood(i))
+        .map((i) => i.name);
+      const label = slot === "breakfast" ? "First meal" : "Second meal";
+      out.push({
+        id: MEAL_BASE + day * 2 + k,
+        channelId: CHANNEL,
+        smallIcon: "ic_stat_supplime",
+        iconColor: "#3D5A4C",
+        autoCancel: true,
+        title: `${label} soon · ${formatClock(times[slot])}`,
+        body: needFood.length
+          ? `${needFood.join(", ")} ${needFood.length === 1 ? "needs" : "need"} food. Busy day? Eat something small, then take ${needFood.length === 1 ? "it" : "them"}.`
+          : "A nudge to eat, even on a busy day.",
+        schedule: { at: when, allowWhileIdle: true },
+        extra: { date, slot, kind: "meal" } satisfies Extra,
+      });
+    });
+  }
+
   // One heads-up per bottle on the morning it crosses its reorder threshold.
   activeStack(stack).forEach((item, i) => {
     const left = daysOfStock(item);
@@ -406,4 +454,11 @@ export async function clearDelivered(slot: SlotId) {
   } catch {
     /* not critical */
   }
+}
+
+/** Needs food or a meal with fat, by its rules or your own setting. */
+function needsFood(item: StackItem) {
+  if (item.foodTiming === "with" || item.foodTiming === "after") return true;
+  if (item.foodTiming === "empty") return false;
+  return profileFor(item).rules.some((r) => r.kind === "needs-food" || r.kind === "needs-fat");
 }

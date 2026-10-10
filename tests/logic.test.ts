@@ -1319,3 +1319,57 @@ describe("v3.8: late doses, spacing and history fixes", () => {
     expect(buildCoachPrompt(useSupplime.getState(), TODAY)).toContain("wearable");
   });
 });
+
+describe("v3.9: times, meals and the path", () => {
+  it("lists live dose times per day, flags late ones and skips fixes", async () => {
+    const { dosesByTime, timeSummary } = await import("@/lib/insights");
+    setup(["lions-mane"]);
+    const id = byCat("lions-mane").id;
+    s().logDose(id, "breakfast", "taken", TODAY);
+    s().setDoseRecord(id, "breakfast", addDays(TODAY, -1), "taken");
+    const st = s();
+    const days = dosesByTime({
+      stack: st.stack,
+      logs: st.logs,
+      body: st.body,
+      days: st.days,
+      profile: st.profile,
+      today: TODAY,
+      count: 3,
+    });
+    expect(days[0]!.doses).toHaveLength(1);
+    expect(days[1]!.doses).toHaveLength(0);
+    expect(timeSummary(days, id)?.count).toBe(1);
+  });
+
+  it("reminds you to eat before a meal, naming what needs food, unless you ate", async () => {
+    const { buildSchedule } = await import("@/lib/notifications");
+    setup(["lions-mane"]);
+    s().setProfile({ mealReminders: { first: true } });
+    const morning = new Date(`${TODAY}T05:00:00`);
+    const meal = buildSchedule(morning).find((n) => n.title?.startsWith("First meal soon"));
+    expect(meal?.body).toContain("Lion's Mane");
+    s().setDay(TODAY, { mealsAt: ["07:50"] });
+    const after = buildSchedule(morning).filter((n) => n.title?.startsWith("First meal soon"));
+    expect(after.every((n) => (n.extra as { date: string }).date !== TODAY)).toBe(true);
+  });
+
+  it("builds a dated path: behind you and ahead", async () => {
+    const { journeyPath } = await import("@/lib/path");
+    setup(["lions-mane"]);
+    const id = byCat("lions-mane").id;
+    s().updateItem(id, { startedAt: addDays(TODAY, -10) });
+    const st = s();
+    const p = journeyPath({
+      stack: st.stack,
+      logs: st.logs,
+      effects: st.effects,
+      decisions: st.decisions,
+      profile: st.profile,
+      today: TODAY,
+    });
+    expect(p.behind.some((e) => e.title === "Started Lion's Mane")).toBe(true);
+    expect(p.ahead[0]!.date >= TODAY).toBe(true);
+    expect(p.ahead.some((e) => e.title.includes("most people feel it"))).toBe(true);
+  });
+});
