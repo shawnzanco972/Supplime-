@@ -13,6 +13,37 @@ import { useSupplime } from "@/lib/store";
 import { formatShortDate, todayKey } from "@/lib/utils";
 
 /** Connect / sync Health Connect (where Fitbit and Google Health share their data). */
+/** Remove everything that came from Health Connect, keeping your own ratings and notes. */
+function forgetWatchData() {
+  const WATCH = [
+    "sleepHours",
+    "sleepScore",
+    "restingHr",
+    "hrv",
+    "steps",
+    "deepMin",
+    "remMin",
+    "activeMin",
+    "spo2",
+  ] as const;
+  const body = useSupplime
+    .getState()
+    .body.map((b) => {
+      if (b.source !== "fitbit") return b;
+      const rest = { ...b };
+      for (const k of WATCH) delete rest[k];
+      return rest;
+    })
+    .filter(
+      (b) =>
+        b.source !== "fitbit" ||
+        [b.energy, b.mood, b.focus, b.calm].some((v) => v !== undefined) ||
+        !!b.notes,
+    );
+  useSupplime.setState({ body });
+  toast("Watch data deleted from Supplime");
+}
+
 export function HealthConnect() {
   const sync = useSupplime((s) => s.profile.healthSync);
   const setProfile = useSupplime((s) => s.setProfile);
@@ -69,7 +100,7 @@ export function HealthConnect() {
           </p>
           {needsMorePermissions() && (
             <div className="rounded-xl bg-accent p-3 text-sm text-accent-foreground">
-              <p>New: deep and REM sleep, exercise minutes and blood oxygen.</p>
+              <p>New: deep and REM sleep, and blood oxygen.</p>
               <Button size="sm" className="mt-2" disabled={busy} onClick={() => run(true)}>
                 Share more data
               </Button>
@@ -79,7 +110,17 @@ export function HealthConnect() {
             <Button variant="outline" disabled={busy} onClick={() => run(false)}>
               {busy ? "Syncing…" : "Sync now"}
             </Button>
-            <Button variant="ghost" onClick={() => setProfile({ healthSync: { enabled: false } })}>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setProfile({ healthSync: { enabled: false } });
+                toast("Disconnected", {
+                  description:
+                    "To remove access fully: Android Settings → Health Connect → App permissions → Supplime.",
+                  action: { label: "Delete watch data", onClick: () => forgetWatchData() },
+                });
+              }}
+            >
               Disconnect
             </Button>
           </div>
@@ -87,8 +128,13 @@ export function HealthConnect() {
       ) : (
         <>
           <p className="text-xs text-muted-foreground">
-            In Google Health (or the Fitbit app): Settings → Health Connect → allow it to share
-            sleep, heart rate and HRV. Then connect here.
+            Supplime will ask to <span className="font-medium text-foreground">read</span> sleep,
+            resting heart rate, HRV, steps and blood oxygen. It never writes anything, uses them
+            only to show trends next to your supplements, and keeps them on this phone.
+          </p>
+          <p className="text-xs text-muted-foreground">
+            First, in Google Health (or the Fitbit app): Settings → Health Connect → allow it to
+            share your data. Then connect here.
           </p>
           <Button disabled={busy} onClick={() => run(true)}>
             {busy ? "Connecting…" : "Connect Health Connect"}

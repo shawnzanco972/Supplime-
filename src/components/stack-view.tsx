@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { foodLabel } from "@/lib/catalog";
 import { stackWarnings } from "@/lib/flags";
+import { stackCautions } from "@/lib/timing";
 import { journeyFor, PHASE_COPY } from "@/lib/journey";
 import { useNav } from "@/lib/nav";
 import { daysOfStock, isLowStock } from "@/lib/stats";
@@ -74,6 +75,7 @@ export function StackView() {
   const wishlist = stack.filter((i) => !i.archived && i.stage === "interested");
   const setStage = useSupplime((s) => s.setStage);
   const warnings = stackWarnings({ stack, times: profile.slotTimes, profile });
+  const cautions = stackCautions(stack);
   const low = active.filter(isLowStock);
 
   const card = (item: StackItem) => {
@@ -105,7 +107,9 @@ export function StackView() {
           )}
           <p className="mt-0.5 text-sm text-muted-foreground">
             {item.amount} {item.unit} · {foodLabel(item.foodTiming)} ·{" "}
-            {item.slots.map((s) => SLOTS.find((x) => x.id === s)?.label).join(", ")}
+            {SLOTS.filter((x) => item.slots.includes(x.id))
+              .map((x) => x.label)
+              .join(", ")}
           </p>
           <p className="mt-1 text-xs text-muted-foreground">
             Day {j.day} · {j.atDose}d at this dose ·{" "}
@@ -146,7 +150,7 @@ export function StackView() {
         <div className="space-y-3">{active.map(card)}</div>
       )}
 
-      {warnings.length > 0 && (
+      {(warnings.length > 0 || cautions.length > 0) && (
         <section className="space-y-2 rounded-2xl bg-card p-4 shadow-[var(--shadow-border)]">
           <h2 className="font-display text-lg tracking-tight">Habit check</h2>
           <p className="text-sm text-muted-foreground">
@@ -165,6 +169,12 @@ export function StackView() {
                   </p>
                   <FlagChip flag={w.flag} className="mt-1" />
                 </button>
+              </li>
+            ))}
+            {cautions.map((c) => (
+              <li key={c.text}>
+                <p className="text-sm font-medium">{c.names.join(" + ")}</p>
+                <p className="mt-0.5 text-sm text-muted-foreground">{c.text}</p>
               </li>
             ))}
           </ul>

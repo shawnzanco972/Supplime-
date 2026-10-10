@@ -12,13 +12,17 @@ import { GOALS, SLOTS, type GoalId, type Habits, type Rhythm, type SlotId } from
 export function setupPrompt(today: string) {
   const slots = SLOTS.map((s) => `"${s.id}" (${s.label.toLowerCase()})`).join(", ");
   const goals = GOALS.map((g) => `"${g.id}"`).join(", ");
-  return `You're helping me set up Supplime, a supplement tracker app. Interview me briefly, then write a setup block I'll paste back into the app.
+  return `You're helping me set up Supplime, a supplement tracker app. Ask me a few quick questions, then write a setup block I'll paste back into the app.
 
-How to interview:
-- Ask ONE short question at a time, friendly and plain. 6 to 10 questions in total.
-- Cover: my first name; why I take supplements; when I usually wake up and if that varies; when I first eat and when my last meal is; bedtime; coffee (and roughly when) and alcohol (never / sometimes / often); then every supplement I take now: what it is (brand is a bonus), the dose per serving, how many times a day and when, since when I've taken it, and how consistently (every day / most days / some days).
-- If I'm unsure of something, make a sensible guess and tell me.
-- Don't give medical advice or suggest new supplements.
+Rules for the questions:
+- At most 4 questions, one per message, each one or two short lines. No long lists, no explanations.
+  1. My first name, and in a few words why I take supplements.
+  2. My usual day: wake-up time (and whether it varies a lot), first meal, last meal, bedtime.
+  3. Coffee (yes/no, roughly when) and alcohol (never / sometimes / often).
+  4. What I take now: I'll list them roughly (name, dose, when, since when, how regularly).
+- Accept short, rough answers. Don't ask follow-ups; make sensible guesses and mention them in the summary.
+- If I say I don't take anything yet, skip question 4.
+- No medical advice and no product suggestions.
 
 When you're done, reply with a short summary and then ONLY this JSON in one code block (today is ${today}):
 
@@ -36,7 +40,7 @@ When you're done, reply with a short summary and then ONLY this JSON in one code
 }
 \`\`\`
 
-"amount" is per dose (one serving), not per day. Use 24-hour times. Start by saying hi and asking my name.`;
+"amount" is per dose (one serving), not per day. Use 24-hour times. Keep the summary to 3 lines. Start right away with question 1.`;
 }
 
 export type SetupImport = {
@@ -162,4 +166,9 @@ export function parseSetup(text: string, today: string): SetupImport | null {
     !Object.keys(rhythm).length &&
     !Object.keys(habits).length;
   return empty ? null : result;
+}
+
+/** A shared text that is (probably) a setup block, not a product link. */
+export function looksLikeSetup(text: string) {
+  return /"supplime"\s*:/.test(text) || /"supplements"\s*:\s*\[/.test(text);
 }

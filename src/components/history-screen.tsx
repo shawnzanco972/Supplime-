@@ -1,5 +1,5 @@
-import { Plane } from "lucide-react";
-import { useMemo, useState } from "react";
+import { ChevronLeft, ChevronRight, Plane } from "lucide-react";
+import { useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Chip, Field, Section } from "@/components/fields";
 import { Button } from "@/components/ui/button";
@@ -20,6 +20,8 @@ const CELL: Record<Cell, string> = {
   none: "text-muted-foreground/50",
 };
 const WEEKDAYS = ["M", "T", "W", "T", "F", "S", "S"];
+const daysBetweenInclusive = (a: string, b: string) =>
+  Math.round((parseISODate(b).getTime() - parseISODate(a).getTime()) / 864e5) + 1;
 const slotLabel = (id: SlotId) => SLOTS.find((s) => s.id === id)?.label ?? id;
 
 /**
@@ -28,22 +30,27 @@ const slotLabel = (id: SlotId) => SLOTS.find((s) => s.id === id)?.label ?? id;
  */
 export function HistoryScreen({ itemId }: { itemId?: string }) {
   const close = useNav((s) => s.close);
-  const { stack, logs, setDoseRecord, markAway } = useSupplime();
+  const { stack, logs, setDoseRecord, markAway, fillDays } = useSupplime();
   const today = appToday();
   const items = stack.filter((i) => !i.planned && i.startedAt <= today);
   const [selected, setSelected] = useState(itemId ?? items[0]?.id);
   const item = items.find((i) => i.id === selected) ?? items[0];
   const [day, setDay] = useState<string | null>(null);
   const [away, setAway] = useState({ from: addDays(today, -7), to: addDays(today, -1), all: true });
+  // Pages of six weeks: 0 = ending this week, 1 = the six before, …
+  const [page, setPage] = useState(0);
+  // Long-press a day to pick several, then fix them in one go.
+  const [picked, setPicked] = useState<string[] | null>(null);
+  const press = useRef<{ timer: number; fired: boolean } | null>(null);
 
-  // Six weeks, Monday first, ending this week.
+  // Six weeks, Monday first.
   const weeks = useMemo(() => {
     const dow = (parseISODate(today).getDay() + 6) % 7;
-    const start = addDays(today, -dow - 35);
+    const start = addDays(today, -dow - 35 - page * 42);
     return Array.from({ length: 6 }, (_, w) =>
       Array.from({ length: 7 }, (_, d) => addDays(start, w * 7 + d)),
     );
-  }, [today]);
+  }, [today, page]);
 
   if (!item) {
     return (
@@ -52,6 +59,57 @@ export function HistoryScreen({ itemId }: { itemId?: string }) {
       </Screen>
     );
   }
+
+  // Morning first, whatever order the windows were picked in.
+  const slots = SLOTS.map((x) => x.id).filter((id) => item.slots.includes(id));
+
+  const startPress = (date: string) => {
+    if (press.current) window.clearTimeout(press.current.timer);
+    const p = { fired: false, timer: 0 };
+    p.timer = window.setTimeout(() => {
+      p.fired = true;
+      navigator.vibrate?.(15);
+      setDay(null);
+      setPicked((prev) => (prev ? (prev.includes(date) ? prev : [...prev, date]) : [date]));
+    }, 450);
+    press.current = p;
+  };
+  const endPress = () => {
+    if (press.current) window.clearTimeout(press.current.timer);
+  };
+  const tapDay = (date: string) => {
+    if (press.current?.fired) {
+      press.current = null;
+      return;
+    }
+    if (picked) {
+      const next = picked.includes(date) ? picked.filter((d) => d !== date) : [...picked, date];
+      setPicked(next.length ? next : null);
+    } else setDay(date);
+  };
+  const range = picked && picked.length > 1 ? [...picked].sort() : null;
+  const fillRange = () => {
+    if (!range) return;
+    const out: string[] = [];
+    for (let d = range[0]!; d <= range.at(-1)! && d <= today; d = addDays(d, 1)) out.push(d);
+    setPicked(out);
+  };
+  const applyPicked = (status: "taken" | "skipped" | "away" | null) => {
+    if (!picked) return;
+    const before = { logs: useSupplime.getState().logs, stack: useSupplime.getState().stack };
+    fillDays(item.id, picked, status);
+    const n = picked.length;
+    toast(
+      `${n} day${n === 1 ? "" : "s"} ${status === "taken" ? "marked taken" : status === "away" ? "marked away" : status ? "marked skipped" : "cleared"}`,
+      {
+        description: picked.some((d) => d < item.startedAt)
+          ? "Start date moved back to match."
+          : undefined,
+        action: { label: "Undo", onClick: () => useSupplime.setState(before) },
+      },
+    );
+    setPicked(null);
+  };
 
   const record = (slot: SlotId, date: string) =>
     logs.find((l) => l.itemId === item.id && l.slot === slot && l.date === date);
@@ -82,9 +140,30 @@ export function HistoryScreen({ itemId }: { itemId?: string }) {
 
         <Section
           title={item.name}
-          hint="Tap a day to change it. Fixes count as history: they keep your record honest but don't earn full XP."
+          hint="Tap a day to change it. Hold a day to pick several and fix them together. Fixes count as history: they keep your record honest but don't earn full XP."
         >
-          <div className="grid grid-cols-7 gap-1 text-center" role="grid">
+          <div className="flex items-center justify-between">
+            <button
+              type="button"
+              onClick={() => setPage(page + 1)}
+              className="flex min-h-9 items-center gap-1 rounded-full px-2 text-xs text-muted-foreground hover:bg-secondary"
+            >
+              <ChevronLeft className="size-4" /> Earlier
+            </button>
+            <span className="text-xs font-medium tabular-nums">
+              {formatShortDate(weeks[0]![0]!)} –{" "}
+              {formatShortDate(weeks[5]![6]! > today ? today : weeks[5]![6]!)}
+            </span>
+            <button
+              type="button"
+              disabled={page === 0}
+              onClick={() => setPage(page - 1)}
+              className="flex min-h-9 items-center gap-1 rounded-full px-2 text-xs text-muted-foreground hover:bg-secondary disabled:opacity-0"
+            >
+              Later <ChevronRight className="size-4" />
+            </button>
+          </div>
+          <div className="grid grid-cols-7 gap-1 text-center select-none" role="grid">
             {WEEKDAYS.map((w, i) => (
               <span key={i} className="text-[11px] text-muted-foreground">
                 {w}
@@ -94,18 +173,26 @@ export function HistoryScreen({ itemId }: { itemId?: string }) {
               const future = date > today;
               const c = future ? "none" : cellFor(item, logs, date, today);
               const edited = logs.some((l) => l.itemId === item.id && l.date === date && l.edited);
-              const off = future || date < item.startedAt;
+              const before = date < item.startedAt;
+              const on = picked?.includes(date);
               return (
                 <button
                   key={date}
                   type="button"
-                  disabled={off}
-                  onClick={() => setDay(date)}
-                  aria-label={`${formatShortDate(date)}: ${c}`}
+                  disabled={future}
+                  onClick={() => tapDay(date)}
+                  onPointerDown={() => startPress(date)}
+                  onPointerUp={endPress}
+                  onPointerLeave={endPress}
+                  onPointerCancel={endPress}
+                  onContextMenu={(e) => e.preventDefault()}
+                  aria-label={`${formatShortDate(date)}: ${before ? "before you started" : c}`}
+                  aria-pressed={picked ? !!on : undefined}
                   className={cn(
                     "relative flex aspect-square items-center justify-center rounded-lg text-xs tabular-nums disabled:opacity-30",
                     CELL[c],
-                    day === date && "ring-2 ring-foreground ring-offset-1 ring-offset-card",
+                    before && !on && "opacity-45",
+                    (day === date || on) && "ring-2 ring-foreground ring-offset-1 ring-offset-card",
                   )}
                 >
                   {parseISODate(date).getDate()}
@@ -124,10 +211,67 @@ export function HistoryScreen({ itemId }: { itemId?: string }) {
             <span>• = fixed later</span>
           </div>
 
-          {day && (
+          {picked && (
             <div className="space-y-2 rounded-xl bg-secondary p-3">
-              <p className="text-sm font-medium">{formatShortDate(day)}</p>
-              {item.slots.map((slot) => {
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-sm font-medium">
+                  {picked.length} day{picked.length === 1 ? "" : "s"} picked
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setPicked(null)}
+                  className="min-h-9 px-2 text-xs text-muted-foreground underline"
+                >
+                  Cancel
+                </button>
+              </div>
+              {range && range.length < daysBetweenInclusive(range[0]!, range.at(-1)!) && (
+                <button
+                  type="button"
+                  onClick={fillRange}
+                  className="text-xs text-primary underline underline-offset-2"
+                >
+                  Pick every day from {formatShortDate(range[0]!)} to{" "}
+                  {formatShortDate(range.at(-1)!)}
+                </button>
+              )}
+              <div className="grid grid-cols-4 gap-1">
+                {(
+                  [
+                    ["taken", "Taken"],
+                    ["skipped", "Skipped"],
+                    ["away", "Away"],
+                    [null, "Clear"],
+                  ] as const
+                ).map(([status, label]) => (
+                  <button
+                    key={label}
+                    type="button"
+                    onClick={() => applyPicked(status)}
+                    className={cn(
+                      "min-h-9 rounded-full px-2 text-xs font-medium",
+                      status === "taken" ? "bg-primary text-primary-foreground" : "bg-card",
+                    )}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {day && !picked && (
+            <div className="space-y-2 rounded-xl bg-secondary p-3">
+              <p className="text-sm font-medium">
+                {formatShortDate(day)}
+                {day < item.startedAt && (
+                  <span className="font-normal text-muted-foreground">
+                    {" "}
+                    · before your start date (marking it moves the start back)
+                  </span>
+                )}
+              </p>
+              {slots.map((slot) => {
                 const r = record(slot, day);
                 const v = r?.status === "taken" ? "taken" : r ? "skipped" : null;
                 return (

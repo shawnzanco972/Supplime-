@@ -1170,3 +1170,152 @@ Paste that into Supplime.`;
     expect(parseSetup("Sure! What's your name?", TODAY)).toBeNull();
   });
 });
+
+describe("v3.8: late doses, spacing and history fixes", () => {
+  const ctx = (now: string) => {
+    const rr = rhythm();
+    return { now: dayMinutes(now, rr.wake), times: slotTimesFromRhythm(rr), rhythm: rr };
+  };
+
+  it("skips a late morning dose that would crowd the evening one, or pushes the next", () => {
+    setup(["berberine", "magnesium"]);
+    const ber = byCat("berberine");
+    s().updateItem(ber.id, { slots: ["breakfast", "afternoon"] });
+    const a = missedAdvice({
+      item: byCat("berberine"),
+      slot: "breakfast",
+      reason: "forgot",
+      ...ctx("13:30"),
+    });
+    expect(a.action).toBe("skip");
+    const mag = byCat("magnesium");
+    s().updateItem(mag.id, { slots: ["breakfast", "afternoon"] });
+    const b = missedAdvice({
+      item: byCat("magnesium"),
+      slot: "breakfast",
+      reason: "forgot",
+      ...ctx("13:00"),
+    });
+    expect(b.action).toBe("catch-up");
+    expect(b.title).toContain("push the next");
+  });
+
+  it("says skip once a dose is more hours late than makes sense", () => {
+    setup(["berberine"]);
+    s().updateItem(byCat("berberine").id, { slots: ["breakfast"] });
+    // Berberine: about 3 h after its meal at most.
+    const a = missedAdvice({
+      item: byCat("berberine"),
+      slot: "breakfast",
+      reason: "forgot",
+      ...ctx("12:30"),
+    });
+    expect(a.action).toBe("skip");
+    expect(a.message).toContain("3 h");
+  });
+
+  it("warns when iron comes right after zinc or coffee, and suggests when", async () => {
+    const { takeNowChecks } = await import("@/lib/timing");
+    setup(["iron", "zinc"]);
+    const zinc = byCat("zinc");
+    s().logDose(zinc.id, zinc.slots[0]!, "taken", TODAY);
+    const log = s().logs.find((l) => l.itemId === zinc.id)!;
+    const at = new Date(log.at);
+    const nowMin = at.getHours() * 60 + at.getMinutes() + 20;
+    const checks = takeNowChecks({
+      item: byCat("iron"),
+      stack: s().stack,
+      logs: s().logs,
+      date: TODAY,
+      nowMin,
+    });
+    expect(checks[0]?.tone).toBe("warn");
+    expect(checks[0]?.waitUntil).toBe(nowMin + 40);
+    const coffee = takeNowChecks({
+      item: byCat("iron"),
+      stack: s().stack,
+      logs: [],
+      day: { date: TODAY, coffeeAt: ["08:00"] },
+      date: TODAY,
+      nowMin: 8 * 60 + 30,
+    });
+    expect(coffee[0]?.text).toContain("coffee");
+  });
+
+  it("flags iron and zinc sharing a window, and pairs iron with vitamin C", async () => {
+    const { doseFlags } = await import("@/lib/flags");
+    setup(["iron", "zinc", "vitamin-c"]);
+    for (const id of ["iron", "zinc", "vitamin-c"])
+      s().updateItem(byCat(id).id, { slots: ["wake"] });
+    const flags = doseFlags({
+      item: byCat("iron"),
+      slot: "wake",
+      times: s().profile.slotTimes,
+      profile: s().profile,
+      stack: s().stack,
+    });
+    expect(flags.some((f) => f.tone === "warn" && f.text.includes("Zinc"))).toBe(true);
+    expect(flags.some((f) => f.tone === "good" && f.text.includes("Vitamin C"))).toBe(true);
+  });
+
+  it("fills many days at once and moves the start back for earlier days", () => {
+    setup(["lions-mane"]);
+    const id = byCat("lions-mane").id;
+    const start = byCat("lions-mane").startedAt;
+    const days = Array.from({ length: 60 }, (_, i) => addDays(start, -60 + i));
+    const pills = byCat("lions-mane").servingsRemaining;
+    s().fillDays(id, days, "taken");
+    expect(byCat("lions-mane").startedAt).toBe(days[0]);
+    expect(byCat("lions-mane").doseHistory[0]!.date).toBe(days[0]);
+    expect(s().logs.filter((l) => l.itemId === id && l.status === "taken")).toHaveLength(60);
+    // Only the last two weeks come out of this bottle.
+    expect(pills - byCat("lions-mane").servingsRemaining).toBe(
+      14 * byCat("lions-mane").servingsPerDose,
+    );
+    s().fillDays(id, days.slice(-3), "away");
+    expect(s().logs.filter((l) => l.itemId === id && l.away)).toHaveLength(3);
+  });
+
+  it("edits the time a dose was taken", () => {
+    setup(["lions-mane"]);
+    const id = byCat("lions-mane").id;
+    s().logDose(id, "breakfast", "taken", TODAY);
+    const log = s().logs.find((l) => l.itemId === id)!;
+    s().setDoseTime(log.id, "00:05");
+    const at = new Date(s().logs.find((l) => l.id === log.id)!.at);
+    expect(at.getHours() * 60 + at.getMinutes()).toBe(5);
+  });
+
+  it("imports an AI list after setup without duplicates", async () => {
+    const { parseSetup } = await import("@/lib/ai-setup");
+    setup(["lions-mane"]);
+    const x = parseSetup(
+      '{"supplime":1,"supplements":[{"name":"Lions mane","amount":1000,"unit":"mg"},{"name":"Zinc","amount":15,"unit":"mg"}]}',
+      TODAY,
+    )!;
+    const fresh = x.items.filter((i) => i.catalogId !== "lions-mane");
+    expect(s().importSetup({ ...x, items: fresh }, false)).toBe(1);
+    expect(
+      s()
+        .stack.map((i) => i.catalogId)
+        .sort(),
+    ).toEqual(["lions-mane", "zinc"]);
+  });
+
+  it("keeps watch data out of coach briefings unless allowed", async () => {
+    const { buildCoachPrompt } = await import("@/lib/coach");
+    setup(["lions-mane"]);
+    useSupplime.setState({
+      body: Array.from({ length: 10 }, (_, i) => ({
+        date: addDays(TODAY, -i),
+        sleepHours: 7,
+        restingHr: 55,
+        hrv: 60,
+        source: "fitbit" as const,
+      })),
+    });
+    expect(buildCoachPrompt(useSupplime.getState(), TODAY)).not.toContain("wearable");
+    s().setProfile({ coachWatchData: true });
+    expect(buildCoachPrompt(useSupplime.getState(), TODAY)).toContain("wearable");
+  });
+});

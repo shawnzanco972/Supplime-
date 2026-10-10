@@ -1,11 +1,14 @@
 import { AlarmClock, Check, Coffee, Flag, Sparkles, Undo2, Utensils, Wine } from "lucide-react";
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { DoseDayCards, TodaySummary } from "@/components/today-summary";
 import { EffectCheckIn, SafetyCheck } from "@/components/effect-check-in";
 import { FlagChip } from "@/components/flag-chip";
 import { LevelCard } from "@/components/level-card";
 import { Button } from "@/components/ui/button";
+import { Sheet } from "@/components/ui/screen";
+import { missedAdvice } from "@/lib/missed";
+import { takeNowChecks } from "@/lib/timing";
 import { doseFlags } from "@/lib/flags";
 import { gameSummary, milestonesReached, XP, bonusDay, type Quest } from "@/lib/game";
 import { safetyDue } from "@/lib/advisor";
@@ -33,6 +36,34 @@ export function TodayView({ now }: { now: number }) {
   const state = useSupplime();
   const { stack, logs, profile, days, effects } = state;
   const { go, open } = useNav();
+  const focus = useNav((s) => s.focus);
+  const [flash, setFlash] = useState<string | null>(null);
+  // Opened from a reminder: bring that window into view and mark it for a moment.
+  useEffect(() => {
+    if (!focus) return;
+    useNav.setState({ focus: null });
+    setFlash(focus);
+    const t1 = window.setTimeout(
+      () =>
+        document
+          .getElementById(`slot-${focus}`)
+          ?.scrollIntoView({ behavior: "smooth", block: "center" }),
+      250,
+    );
+    const t2 = window.setTimeout(() => setFlash(null), 4000);
+    return () => {
+      window.clearTimeout(t1);
+      window.clearTimeout(t2);
+    };
+  }, [focus]);
+  // Before taking: anything too close, or too late to bother? Ask first, quietly.
+  const [guard, setGuard] = useState<{
+    dose: PlannedDose;
+    late: boolean;
+    warnings: string[];
+    waitUntil?: number;
+    skip?: string;
+  } | null>(null);
   const nowDate = new Date(now);
   const date = logicalDate(nowDate, profile.rhythm);
   const nowMin = nowInDay(nowDate, profile.rhythm);
@@ -58,6 +89,19 @@ export function TodayView({ now }: { now: number }) {
     .sort((a, b) => a.m - b.m);
   // Where each window sits on today's line: when you actually took it, else its planned time.
   const anchors: number[] = [];
+
+  const takeDose = (dose: PlannedDose, late: boolean) => {
+    state.logDose(dose.item.id, dose.slot, "taken", date, late ? { late: true } : undefined);
+    const h = dose.item.doseHistory;
+    const first = h.length > 1 && h.at(-1)!.date === date;
+    toast(`+${late ? XP.lateDose : XP.dose} XP`, {
+      description: first
+        ? `First dose at ${doseLabel(dose.item, dose.item.amount)}. New step, day 1.`
+        : `${dose.item.name} logged.`,
+    });
+  };
+  const hhmm = (m: number) =>
+    `${String(Math.floor(m / 60) % 24).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
   for (const plan of plans) {
     const taken = todayLogs
       .filter((l) => l.slot === plan.slot.id && l.status === "taken" && !l.edited)
@@ -207,7 +251,7 @@ export function TodayView({ now }: { now: number }) {
               {before.map((e) => (
                 <EventRow key={`${e.kind}-${e.at}`} kind={e.kind} at={e.at} />
               ))}
-              <section>
+              <section id={`slot-${plan.slot.id}`} className="scroll-mt-24">
                 <div className="mb-2 flex items-center justify-between gap-3">
                   <div className="flex items-baseline gap-2">
                     <h3 className="font-sans text-base font-semibold">{plan.slot.label}</h3>
@@ -252,21 +296,58 @@ export function TodayView({ now }: { now: number }) {
                             })}
                             late={nowMin > plan.minutes + 120}
                             onTake={(late) => {
-                              state.logDose(
-                                dose.item.id,
-                                dose.slot,
-                                "taken",
+                              const realNow = nowDate.getHours() * 60 + nowDate.getMinutes();
+                              const checks = takeNowChecks({
+                                item: dose.item,
+                                stack,
+                                logs,
+                                day,
                                 date,
-                                late ? { late: true } : undefined,
-                              );
-                              const h = dose.item.doseHistory;
-                              const first = h.length > 1 && h.at(-1)!.date === date;
-                              toast(`+${late ? XP.lateDose : XP.dose} XP`, {
-                                description: first
-                                  ? `First dose at ${doseLabel(dose.item, dose.item.amount)}. New step, day 1.`
-                                  : `${dose.item.name} logged.`,
-                              });
+                                nowMin: realNow,
+                              }).filter((c) => c.tone === "warn");
+                              const advice = late
+                                ? missedAdvice({
+                                    item: dose.item,
+                                    slot: dose.slot,
+                                    reason: "forgot",
+                                    now: nowMin,
+                                    times,
+                                    rhythm: profile.rhythm,
+                                  })
+                                : null;
+                              const skip = advice?.action === "skip" ? advice.message : undefined;
+                              if (checks.length || skip) {
+                                setGuard({
+                                  dose,
+                                  late,
+                                  warnings: checks.map((c) => c.text),
+                                  waitUntil:
+                                    Math.max(0, ...checks.map((c) => c.waitUntil ?? 0)) ||
+                                    undefined,
+                                  skip,
+                                });
+                                return;
+                              }
+                              takeDose(dose, late);
                             }}
+                            due={!flash && plan.minutes <= nowMin && nowMin - plan.minutes < 240}
+                            flash={flash === plan.slot.id}
+                            onTimeChange={(logId, t) => {
+                              state.setDoseTime(logId, t);
+                              toast(`Time changed to ${formatClock(t)}`);
+                            }}
+                            lateNote={
+                              nowMin > plan.minutes + 120
+                                ? missedAdvice({
+                                    item: dose.item,
+                                    slot: dose.slot,
+                                    reason: "forgot",
+                                    now: nowMin,
+                                    times,
+                                    rhythm: profile.rhythm,
+                                  })
+                                : null
+                            }
                             onNotNow={() =>
                               open({ kind: "not-now", itemId: dose.item.id, slot: dose.slot, date })
                             }
@@ -339,6 +420,67 @@ export function TodayView({ now }: { now: number }) {
             <EffectCheckIn key={item.id} item={item} />
           ))}
         </section>
+      )}
+      {guard && (
+        <Sheet
+          onClose={() => setGuard(null)}
+          title={`Before you take ${guard.dose.item.name}`}
+          description={guard.skip ? "It's late for this one." : "Something you took is close."}
+        >
+          <div className="space-y-3">
+            {guard.skip && <p className="text-sm">{guard.skip}</p>}
+            {guard.warnings.map((w) => (
+              <p key={w} className="text-sm">
+                {w}
+              </p>
+            ))}
+            <div className="grid gap-2 pt-1">
+              {guard.skip ? (
+                <Button
+                  onClick={() => {
+                    state.logDose(guard.dose.item.id, guard.dose.slot, "skipped", date, {
+                      reason: "forgot",
+                    });
+                    toast(`${guard.dose.item.name} skipped today`, {
+                      action: {
+                        label: "Undo",
+                        onClick: () => state.undoDose(guard.dose.item.id, guard.dose.slot, date),
+                      },
+                    });
+                    setGuard(null);
+                  }}
+                >
+                  Skip it today
+                </Button>
+              ) : guard.waitUntil ? (
+                <Button
+                  onClick={() => {
+                    state.deferDose(
+                      guard.dose.item.id,
+                      guard.dose.slot,
+                      hhmm(guard.waitUntil!),
+                      "chose",
+                      date,
+                    );
+                    toast(`Reminder set for ${formatClock(hhmm(guard.waitUntil!))}`);
+                    setGuard(null);
+                  }}
+                >
+                  <AlarmClock /> Remind me at {formatClock(hhmm(guard.waitUntil))}
+                </Button>
+              ) : null}
+              <Button
+                variant="outline"
+                onClick={() => {
+                  takeDose(guard.dose, guard.late);
+                  setGuard(null);
+                }}
+              >
+                Take it anyway
+              </Button>
+            </div>
+          </div>
+        </Sheet>
       )}
     </div>
   );
@@ -526,6 +668,10 @@ function DoseRow({
   log,
   flags,
   late,
+  due,
+  flash,
+  lateNote,
+  onTimeChange,
   onTake,
   onNotNow,
   onSkip,
@@ -536,6 +682,12 @@ function DoseRow({
   log?: DoseLog;
   flags: ReturnType<typeof doseFlags>;
   late: boolean;
+  /** Its window has opened and it's still open: gently marked. */
+  due?: boolean;
+  /** Opened from a reminder for this window. */
+  flash?: boolean;
+  lateNote?: ReturnType<typeof missedAdvice> | null;
+  onTimeChange: (logId: string, time: string) => void;
   onTake: (late: boolean) => void;
   onNotNow: () => void;
   onSkip: () => void;
@@ -547,9 +699,25 @@ function DoseRow({
   const h = dose.item.doseHistory;
   const newDose = h.length > 1 && h.at(-1)!.date === appToday();
   const done = status === "taken" || status === "skipped" || status === "missed";
+  const [editing, setEditing] = useState<string | null>(null);
+  const lastTap = useRef(0);
+  const lateFlag =
+    !done && status !== "deferred" && lateNote && lateNote.action !== "catch-up"
+      ? lateNote
+      : !done && status !== "deferred" && lateNote?.title.startsWith("Take it now, push")
+        ? lateNote
+        : null;
   const shown = showAll ? flags : flags.slice(0, flags[0]?.tone === "warn" ? 2 : 1);
+  const open = !done && status !== "deferred";
   return (
-    <div className={cn("rounded-xl px-3 py-2", done && "opacity-70")}>
+    <div
+      className={cn(
+        "rounded-xl px-3 py-2 transition-colors duration-700",
+        done && "opacity-70",
+        open && due && "bg-accent/35",
+        open && flash && "bg-accent ring-1 ring-primary/30",
+      )}
+    >
       <div className="flex items-center gap-3">
         <button type="button" onClick={onOpen} className="min-w-0 flex-1 text-left">
           <p className="truncate font-medium">
@@ -600,9 +768,22 @@ function DoseRow({
             >
               {status === "taken" && <Check className="size-4" />}
               {status === "taken" ? (log?.late ? "Taken late" : "Taken") : "Skipped"}
-              {status === "taken" && log && !log.edited && !log.backfill
-                ? ` ${formatClock(timeOf(log.at))}`
-                : ""}
+              {status === "taken" && log && !log.edited && !log.backfill && editing === null ? (
+                <span
+                  role="button"
+                  tabIndex={0}
+                  title="Double-tap to change the time"
+                  onClick={(e) => {
+                    // Double-tap (two taps within ~⅓ s) opens the time editor.
+                    const now = e.timeStamp;
+                    if (now - lastTap.current < 350) setEditing(timeOf(log.at));
+                    lastTap.current = now;
+                  }}
+                  className="cursor-text"
+                >
+                  {formatClock(timeOf(log.at))}
+                </span>
+              ) : null}
             </span>
             <button
               type="button"
@@ -615,6 +796,41 @@ function DoseRow({
           </div>
         )}
       </div>
+      {status === "taken" && log && editing !== null && (
+        <div className="mt-1.5 flex items-center justify-end gap-1">
+          <input
+            type="time"
+            autoFocus
+            value={editing}
+            onChange={(e) => setEditing(e.target.value)}
+            aria-label="Taken at"
+            className="h-8 rounded-md border border-border bg-card px-1 text-xs tabular-nums"
+          />
+          <button
+            type="button"
+            onClick={() => {
+              if (editing && editing !== timeOf(log.at)) onTimeChange(log.id, editing);
+              setEditing(null);
+            }}
+            className="h-8 rounded-md bg-primary px-2 text-xs font-medium text-primary-foreground"
+          >
+            Save
+          </button>
+          <button
+            type="button"
+            onClick={() => setEditing(null)}
+            aria-label="Cancel"
+            className="h-8 px-1 text-xs text-muted-foreground"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+      {lateFlag && (
+        <p className="mt-1.5 text-xs text-muted-foreground">
+          <span className="font-medium text-foreground">{lateFlag.title}.</span> {lateFlag.message}
+        </p>
+      )}
       {!done && shown.length > 0 && (
         <div className="mt-1.5 flex flex-wrap gap-1.5">
           {shown.map((f) => (

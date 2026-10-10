@@ -7,6 +7,7 @@ import { LevelCard } from "@/components/level-card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Sheet } from "@/components/ui/screen";
+import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { adherenceSince, advise, beforeAfter, fmtDose } from "@/lib/advisor";
 import { dayGrid, METRIC_COPY, skipImpact, type Cell } from "@/lib/insights";
@@ -1005,8 +1006,8 @@ function Coach() {
     <section className="rounded-2xl bg-card p-4 shadow-[var(--shadow-border)]">
       <h2 className="font-display text-xl tracking-tight">Coach</h2>
       <p className="mt-1 text-sm text-muted-foreground">
-        Supplime writes a full briefing — your stack, doses, consistency, check-ins, side effects
-        and wearable data — and asks for timing, dose, next-step and safety advice.
+        Supplime writes a briefing (your stack, doses, consistency, check-ins and side effects) and
+        asks for timing, dose, next-step and safety advice. Nothing is sent until you tap.
       </p>
       <div className="mt-3 grid grid-cols-3 gap-1 rounded-xl bg-secondary p-1">
         {(
@@ -1033,9 +1034,25 @@ function Coach() {
         {provider === "share"
           ? "Free with your Claude or Gemini subscription: the briefing opens in the app you pick."
           : provider === "gemini"
-            ? "Gemini's free API tier — get a key at aistudio.google.com and add it in Settings."
-            : "Your own xAI key, added in Settings."}
+            ? "Gemini's free API tier: the briefing goes straight from this phone to Google. Add a key from aistudio.google.com in Settings."
+            : "Your own xAI key: the briefing goes straight from this phone to xAI. Add it in Settings."}
       </p>
+      {profile.healthSync?.enabled && (
+        <label className="mt-3 flex items-start justify-between gap-3 rounded-xl bg-secondary px-3 py-2.5">
+          <span className="text-sm">
+            Include watch data
+            <span className="block text-xs text-muted-foreground">
+              Sleep, heart rate and HRV from Health Connect go into the briefing for{" "}
+              {provider === "share" ? "the app you pick" : provider === "gemini" ? "Google" : "xAI"}
+              . Off by default.
+            </span>
+          </span>
+          <Switch
+            checked={!!profile.coachWatchData}
+            onCheckedChange={(v) => setProfile({ coachWatchData: v })}
+          />
+        </label>
+      )}
       <Button
         className="mt-3 w-full"
         onClick={run}

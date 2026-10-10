@@ -3,16 +3,101 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Supplime privacy</title>
+    <title>Supplime privacy policy</title>
     <style>
-      body { font-family: system-ui, sans-serif; margin: 24px; line-height: 1.5; color: #1c1e1b; background: #f4f1ea; }
-      h1 { font-size: 1.4rem; }
+      body {
+        font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+        margin: 0 auto;
+        max-width: 720px;
+        padding: 24px 20px 48px;
+        line-height: 1.55;
+        color: #1c1e1b;
+        background: #f4f1ea;
+      }
+      h1 { font-size: 1.6rem; margin-bottom: 0.2rem; }
+      h2 { font-size: 1.15rem; margin-top: 2rem; color: #3d5a4c; }
+      .meta { color: #5b615a; font-size: 0.9rem; }
+      .summary { background: #fff; border-radius: 14px; padding: 4px 18px; box-shadow: 0 0 0 1px #e3ded3; }
+      table { border-collapse: collapse; width: 100%; font-size: 0.92rem; }
+      th, td { text-align: left; vertical-align: top; padding: 8px 6px; border-bottom: 1px solid #e3ded3; }
+      a { color: #3d5a4c; }
+      @media (prefers-color-scheme: dark) {
+        body { background: #161a17; color: #ecebe5; }
+        .summary { background: #1f2420; box-shadow: 0 0 0 1px #2e352f; }
+        th, td { border-color: #2e352f; }
+        h2, a { color: #a7c79a; }
+        .meta { color: #a3a89f; }
+      }
     </style>
   </head>
   <body>
-    <h1>Supplime and your health data</h1>
-    <p>Supplime is a personal app. It reads sleep, resting heart rate, heart rate variability and steps from Health Connect only to show how they change while you take your supplements.</p>
-    <p>All data stays on this phone. Supplime has no server and sends nothing anywhere. Data only leaves the phone if you export a backup or choose to share a summary with an AI assistant yourself.</p>
-    <p>You can revoke access at any time in Health Connect settings.</p>
+    <h1>Supplime privacy policy</h1>
+    <p class="meta">Effective 10 October 2026 · Applies to the Supplime Android app</p>
+
+    <div class="summary">
+      <p><strong>In short:</strong> Supplime has no account, no server, no ads, no analytics and no trackers. Everything you enter, and everything it reads from Health Connect, is stored only on your phone. Data leaves your phone only when you choose to send it, in the ways listed below. We never sell your data or use it for advertising.</p>
+    </div>
+
+    <h2>Who we are</h2>
+    <p>Supplime is a personal supplement tracker made by an independent developer. Questions about this policy: open an issue at <a href="https://github.com/shawnzanco972/Supplime-/issues">github.com/shawnzanco972/Supplime-/issues</a>.</p>
+
+    <h2>What Supplime stores on your phone</h2>
+    <ul>
+      <li>Your profile: first name, your reason and goals, your usual day (wake, meals, bed) and habits (coffee, alcohol).</li>
+      <li>Your supplements: names, products, doses, times, pills left, start dates and dose changes.</li>
+      <li>Your log: doses taken or skipped and when, coffee, meals and drinks you log, days you were away.</li>
+      <li>How you feel: energy, mood, focus and calm ratings, daily notes, effect check-ins and side effects you report.</li>
+      <li>Health Connect data you allow (see below).</li>
+      <li>Coach answers you paste in, and optional AI API keys you enter.</li>
+    </ul>
+    <p>This is kept in the app's private storage on your device. The developer has no copy and cannot see it.</p>
+
+    <h2>Health Connect data</h2>
+    <p>If you connect Health Connect (for example with Fitbit or Google Health), Supplime asks to <strong>read</strong> these data types, including history:</p>
+    <table>
+      <tr><th>Data type</th><th>Why Supplime reads it</th></tr>
+      <tr><td>Sleep (sessions and stages)</td><td>Show sleep, deep and REM sleep next to your supplements, and notice when you woke up so morning reminders follow your real day.</td></tr>
+      <tr><td>Resting heart rate</td><td>Show how it changes after you start or change a supplement.</td></tr>
+      <tr><td>Heart rate variability</td><td>Same: a before/after view per supplement.</td></tr>
+      <tr><td>Steps</td><td>Context for your days in the Body tab.</td></tr>
+      <tr><td>Blood oxygen (SpO₂)</td><td>Shown with your other overnight numbers.</td></tr>
+    </table>
+    <p>Supplime never writes to Health Connect. Data from Health Connect is used only to provide these features to you, inside the app. It is not used for advertising, not sold, not used to decide creditworthiness or insurance, and not shared with anyone. The only exception is when you yourself choose to include it in a coach briefing (see below). Supplime's use of Health Connect data follows the <a href="https://support.google.com/googleplay/android-developer/answer/12991134">Health Connect Permissions policy</a>, including its Limited Use requirements.</p>
+    <p>You can turn off access at any time in Android Settings → Health Connect → App permissions → Supplime. Numbers already imported stay on your phone until you erase them (see "Deleting your data").</p>
+
+    <h2>When data leaves your phone</h2>
+    <p>Only when you do one of these things:</p>
+    <ul>
+      <li><strong>Sharing a coach briefing or setup prompt to an AI app.</strong> Supplime writes a text summary and opens Android's share sheet. You pick the app (for example Claude or Gemini) and see the text before sending. That app's own privacy policy then applies. Health Connect numbers are <em>left out</em> of briefings unless you turn on "Include watch data".</li>
+      <li><strong>Using your own AI API key (optional).</strong> If you add a Gemini or xAI key, tapping "Ask now" sends the same briefing directly from your phone to Google's Gemini API or to xAI, using your key, under their terms. Your key stays on your phone and is never included in backups.</li>
+      <li><strong>Exporting a backup.</strong> You choose where the backup file goes. It contains your Supplime data (without API keys).</li>
+      <li><strong>Adding a product from an iHerb link.</strong> For a short iherb.co link, Supplime makes a normal web request to iHerb to read the product name. iHerb receives what any web request contains (such as your IP address); no other data is sent.</li>
+      <li><strong>Android device backup.</strong> If Google backup is turned on for your phone, Android may include the app's data in your encrypted device backup in your Google account. You control this in Android settings.</li>
+    </ul>
+
+    <h2>Permissions</h2>
+    <table>
+      <tr><th>Permission</th><th>Used for</th></tr>
+      <tr><td>Notifications</td><td>Dose reminders, catch-ups, refill warnings and the optional evening "how was your day?" reminder.</td></tr>
+      <tr><td>Exact alarms (if you allow)</td><td>Reminders on time instead of a few minutes late.</td></tr>
+      <tr><td>Run at startup</td><td>Put your reminders back after the phone restarts.</td></tr>
+      <tr><td>Internet</td><td>Only for the optional actions above (iHerb links, AI API keys).</td></tr>
+      <tr><td>Health Connect (read)</td><td>The data types listed above, only if you connect it.</td></tr>
+    </table>
+
+    <h2>Deleting your data</h2>
+    <p>Settings → "Erase everything on this phone" deletes all Supplime data immediately. Uninstalling the app deletes it too. Because the developer holds no copy, there is nothing else to request; there is no account to delete.</p>
+
+    <h2>Security</h2>
+    <p>Data sits in Supplime's private app storage, which other apps cannot read. Anything sent over the internet (the optional actions above) uses HTTPS.</p>
+
+    <h2>Children</h2>
+    <p>Supplime is meant for adults and is not directed at children under 18.</p>
+
+    <h2>Not medical advice</h2>
+    <p>Supplime is a personal tracker. Its timelines, timing tips and dose suggestions are general information, not medical advice. Talk to a doctor or pharmacist about your supplements, especially if you take medication, are pregnant or have a health condition.</p>
+
+    <h2>Changes</h2>
+    <p>If this policy changes, the new version is published at this address with a new effective date, and the app links to it from Settings.</p>
   </body>
 </html>

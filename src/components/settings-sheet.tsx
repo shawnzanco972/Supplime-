@@ -35,6 +35,7 @@ const TARGETS = [0.7, 0.8, 0.85, 0.9, 1];
 
 export function SettingsScreen() {
   const close = useNav((s) => s.close);
+  const openOverlay = useNav((s) => s.open);
   const profile = useSupplime((s) => s.profile);
   const feel = feelReminder(profile);
   const setNotifications = useSupplime((s) => s.setNotifications);
@@ -303,9 +304,27 @@ export function SettingsScreen() {
 
         <Section
           title="Fitbit / Google Health"
-          hint="Reads sleep, resting heart rate, HRV and steps through Health Connect. Nothing leaves your phone."
+          hint="Reads sleep, resting heart rate, HRV, steps and blood oxygen through Health Connect. Read-only, and it stays on this phone."
         >
           <HealthConnect />
+        </Section>
+
+        <Section
+          title="Import from your AI"
+          hint="Taking a lot? Your Claude or Gemini app asks you a few quick questions and writes a list Supplime can read."
+        >
+          <Button variant="outline" onClick={() => openOverlay({ kind: "ai-import" })}>
+            Import from my AI app
+          </Button>
+        </Section>
+
+        <Section
+          title="Privacy"
+          hint="No account, no ads, no tracking. Your data stays on this phone unless you send it."
+        >
+          <Button variant="outline" onClick={() => openOverlay({ kind: "privacy" })}>
+            Read the privacy policy
+          </Button>
         </Section>
 
         <Button

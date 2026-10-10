@@ -1,6 +1,7 @@
 import { CATALOG_BY_ID } from "./catalog";
 import { profileFor } from "./knowledge";
 import { activeStack, dayMinutes } from "./protocol";
+import { separationBetween, timingFor } from "./timing";
 import {
   SLOTS,
   type DayContext,
@@ -189,14 +190,18 @@ export function doseFlags(input: {
           (o) => o.id !== item.id && o.catalogId && rule.with?.includes(o.catalogId),
         );
         for (const other of others) {
+          // The research table decides the gap (and why); the rule only says "check this pair".
+          const sep = separationBetween(item, other);
+          const hours = sep?.hours ?? rule.hours ?? 2;
+          if (!hours) continue;
           const close = other.slots.some(
-            (s) => Math.abs(dayMinutes(times[s], wake) - at) < (rule.hours ?? 2) * 60,
+            (s) => Math.abs(dayMinutes(times[s], wake) - at) < hours * 60,
           );
           if (close) {
             flags.push({
               tone: "warn",
               icon: "split",
-              text: `Too close to ${other.name} — they compete for absorption. Keep them ${rule.hours ?? 2} h apart.`,
+              text: `Too close to ${other.name}: ${(sep?.why ?? "they compete for absorption").toLowerCase()}. Keep them ${hours} h apart.`,
             });
           }
         }
@@ -219,6 +224,39 @@ export function doseFlags(input: {
     }
   }
 
+  // Spacing from the research: things that block each other, and things that pair well.
+  for (const other of activeStack(stack)) {
+    if (other.id === item.id || !other.slots.includes(slot)) continue;
+    const sep = separationBetween(item, other);
+    if (!sep || sep.confidence === "theoretical") continue;
+    if (flags.some((f) => f.text.includes(other.name))) continue;
+    flags.push(
+      sep.hours === 0
+        ? {
+            tone: "good",
+            icon: "split",
+            text: `Pairs well with ${other.name}: ${sep.why.toLowerCase()}.`,
+          }
+        : {
+            tone: "warn",
+            icon: "split",
+            text: `Keep ${sep.hours < 1 ? `${sep.hours * 60} min` : `${sep.hours} h`} from ${other.name}: ${sep.why.toLowerCase()}.`,
+          },
+    );
+  }
+  const coffeeSep = timingFor(item).separations.find((x) => x.with === "coffee" && x.hours > 0);
+  if (coffeeSep && profile.habits.coffee) {
+    const coffee = dayMinutes(profile.habits.coffeeTime, wake);
+    const gap = Math.abs(at - coffee);
+    if (gap < coffeeSep.hours * 60 && !flags.some((f) => f.icon === "coffee")) {
+      flags.push({
+        tone: "warn",
+        icon: "coffee",
+        text: `Your usual coffee (${formatClock(profile.habits.coffeeTime)}) is close: ${coffeeSep.why.toLowerCase()}.`,
+      });
+    }
+  }
+
   const order = { warn: 0, good: 1, info: 2 } as const;
   return flags.sort((a, b) => order[a.tone] - order[b.tone]);
 }
@@ -230,10 +268,22 @@ export function stackWarnings(input: {
   profile: Pick<Profile, "rhythm" | "habits">;
 }) {
   const out: { item: StackItem; slot: SlotId; flag: Flag }[] = [];
-  for (const item of activeStack(input.stack)) {
+  const active = activeStack(input.stack);
+  // A clash between two supplements shows once, not under each of them.
+  const pairs = new Set<string>();
+  for (const item of active) {
     for (const slot of item.slots) {
       for (const flag of doseFlags({ ...input, item, slot })) {
-        if (flag.tone === "warn") out.push({ item, slot, flag });
+        if (flag.tone !== "warn") continue;
+        if (flag.icon === "split") {
+          const other = active.find((o) => o.id !== item.id && flag.text.includes(o.name));
+          if (other) {
+            const key = [item.id, other.id].sort().join("|");
+            if (pairs.has(key)) continue;
+            pairs.add(key);
+          }
+        }
+        out.push({ item, slot, flag });
       }
     }
   }

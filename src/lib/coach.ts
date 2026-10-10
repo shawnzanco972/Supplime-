@@ -18,6 +18,8 @@ export const DEFAULT_GEMINI_MODEL = "gemini-2.5-flash";
 export const DEFAULT_COACH_MODEL = "grok-4.5";
 
 export function buildCoachPrompt(state: PersistedData, today: string) {
+  // Health Connect data only leaves the phone when you've said so.
+  const watch = !!state.profile.coachWatchData;
   const { profile, stack, logs, effects, decisions, checks, body } = state;
   const active = stack.filter((i) => !i.archived && !i.paused && !i.planned);
   const planned = stack.filter((i) => i.planned);
@@ -46,7 +48,7 @@ export function buildCoachPrompt(state: PersistedData, today: string) {
       `- ${item.name}${item.product ? ` (${item.product.brand} ${item.product.name})` : ""}: ${fmtDose(item, item.amount)} ${item.slots.map(slotLabel).join(" + ")}. Day ${j.day}, ${j.atDose} days at this dose, consistency ${j.consistency === null ? "unknown" : `${Math.round(j.consistency * 100)}%`}. Typical onset ~day ${p.typicalDay}.`,
       `  Check-ins: ${checkIns || "none yet"}. Side effects: ${symptoms.length ? symptoms.join(", ") : "none reported"}.`,
     );
-    for (const d of beforeAfter(item, body, today, logs)) {
+    for (const d of watch ? beforeAfter(item, body, today, logs) : []) {
       lines.push(`  Wearable ${d.metric}: ${d.before} before → ${d.after} since starting.`);
     }
   }
@@ -61,7 +63,7 @@ export function buildCoachPrompt(state: PersistedData, today: string) {
     );
   if (curious.length)
     lines.push(`Considering: ${curious.map((i) => i.name).join(", ")}. Is it a good idea for me?`);
-  if (avg.count) {
+  if (watch && avg.count) {
     lines.push(
       "",
       `Last 14 days from my wearable: sleep ${avg.sleepHours?.toFixed(1) ?? "?"} h, resting HR ${avg.restingHr ? Math.round(avg.restingHr) : "?"}, HRV ${avg.hrv ? Math.round(avg.hrv) : "?"}.`,

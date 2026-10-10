@@ -1,0 +1,39 @@
+name: Publish privacy policy
+
+# Google Play needs the privacy policy at a public web address. This publishes
+# public/privacypolicy.html to GitHub Pages (enable Pages → Source: GitHub Actions once).
+on:
+  push:
+    paths:
+      - public/privacypolicy.html
+      - .github/workflows/pages.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}privacypolicy.html
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the site
+        run: |
+          mkdir -p site
+          cp public/privacypolicy.html site/privacypolicy.html
+          cp public/privacypolicy.html site/index.html
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: deployment
+        uses: actions/deploy-pages@v4

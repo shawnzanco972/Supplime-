@@ -11,6 +11,8 @@ export type Overlay =
   | { kind: "not-now"; itemId: string; slot: SlotId; date: string }
   | { kind: "settings" }
   | { kind: "history"; itemId?: string }
+  | { kind: "ai-import"; text?: string }
+  | { kind: "privacy" }
   | null;
 
 type NavStore = {
@@ -18,6 +20,8 @@ type NavStore = {
   overlay: Overlay;
   /** Text shared to Supplime before setup is finished (e.g. a setup block from an AI app). */
   inbox: string | null;
+  /** A window to bring into view on Today (opened from its reminder). */
+  focus: SlotId | null;
   /** Switch tabs. `anchor` scrolls to an element id once the tab has rendered. */
   go: (tab: Tab, anchor?: string) => void;
   open: (overlay: Overlay) => void;
@@ -28,6 +32,7 @@ export const useNav = create<NavStore>()((set) => ({
   tab: "today",
   overlay: null,
   inbox: null,
+  focus: null,
   go: (tab, anchor) => {
     set({ tab });
     if (typeof window === "undefined") return;

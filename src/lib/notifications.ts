@@ -1,5 +1,6 @@
 import { LocalNotifications, type LocalNotificationSchema } from "@capacitor/local-notifications";
 import { CATALOG_BY_ID } from "./catalog";
+import { timingFor } from "./timing";
 import { isNative } from "./platform";
 import { activeStack, dayMinutes, effectiveSlotTimes, logicalDate, planDay } from "./protocol";
 import { daysOfStock, remainingKeys } from "./stats";
@@ -26,6 +27,8 @@ const DAYS_AHEAD = 14;
 const FLEX_GRACE = 120;
 
 const SLOT_INDEX = Object.fromEntries(SLOTS.map((s, i) => [s.id, i])) as Record<SlotId, number>;
+/** Ids 12–17 of each day's block of 20: the last nudge per window. */
+const lastNudgeId = (day: number, slot: SlotId) => 1000 + day * 20 + 12 + SLOT_INDEX[slot];
 const reminderId = (day: number, slot: SlotId, nag: boolean) =>
   1000 + day * 20 + SLOT_INDEX[slot] * 2 + (nag ? 1 : 0);
 const CATCHUP_BASE = 7000;
@@ -253,6 +256,23 @@ export function buildSchedule(now = new Date()): LocalNotificationSchema[] {
             body,
             largeBody: `${body}\nTap "Took them" if you already did, or "Not with me" and Supplime will plan a catch-up.`,
             schedule: { at: nagAt, allowWhileIdle: true },
+          });
+        }
+        // One last, gentler nudge while a late dose still makes sense for something open.
+        const lastAfter = Math.max(nag * 3, 90);
+        const stillFine = open.filter((d) => timingFor(d.item).lateHours * 60 > lastAfter + 30);
+        const lastAt = at(date, minutes + lastAfter);
+        if (stillFine.length && lastAt.getTime() > now.getTime()) {
+          const lastBody = stillFine
+            .map((d) => doseLabel(d.item.name, d.item.amount, d.item.unit))
+            .join(", ");
+          out.push({
+            ...base,
+            id: lastNudgeId(day, plan.slot.id),
+            title: `Last nudge · ${plan.slot.label}`,
+            body: lastBody,
+            largeBody: `${lastBody}\nStill fine to take now. Open Supplime and it shows what to take, or tell it you skipped.`,
+            schedule: { at: lastAt, allowWhileIdle: true },
           });
         }
       }

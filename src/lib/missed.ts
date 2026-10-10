@@ -1,6 +1,14 @@
 import { profileFor } from "./knowledge";
+import { timingFor } from "./timing";
 import { dayMinutes } from "./protocol";
-import type { MissReason, Rhythm, SlotId, SlotTimes, StackItem } from "./types";
+import {
+  SLOTS,
+  type MissReason,
+  type Rhythm,
+  type SlotId,
+  type SlotTimes,
+  type StackItem,
+} from "./types";
 import { formatClock, formatHHMM } from "./utils";
 
 export type MissedAdvice = {
@@ -86,23 +94,67 @@ export function missedAdvice(input: {
     };
   }
 
+  const t = timingFor(item);
+  const slotAt = dayMinutes(times[slot], wake);
+  // How late is still sensible, from the research per supplement.
+  const lateLimit = slotAt + t.lateHours * 60;
   // Stimulating supplements must not drift into the evening.
-  const latest =
+  const bedLimit =
     p.missed === "morning-only"
-      ? Math.min(dayMinutes(wake, wake) + 7 * 60, bed - 8 * 60)
-      : p.rules.some((r) => r.kind === "drowsy")
-        ? bed
-        : bed - 60;
+      ? Math.min(dayMinutes(wake, wake) + 7 * 60, bed - (t.bedCutoffHours ?? 8) * 60)
+      : t.bedCutoffHours
+        ? bed - t.bedCutoffHours * 60
+        : p.rules.some((r) => r.kind === "drowsy")
+          ? bed
+          : bed - 60;
+  const latest = Math.min(lateLimit, bedLimit);
 
   if (earliest > latest) {
+    const tooLate = lateLimit <= bedLimit;
     return {
       action: "skip",
       title: "Skip it today",
-      message:
-        p.missed === "morning-only"
+      message: tooLate
+        ? `It's more than ${t.lateHours} h past its time. ${t.lateWhy} ${NO_DOUBLE}`
+        : p.missed === "morning-only" || t.bedCutoffHours
           ? `${item.name} is stimulating; after ${clock(latest)} it can cost you sleep. ${NO_DOUBLE}`
           : `It's too late in your day for ${item.name}. ${p.kind === "cumulative" ? "One missed day doesn't undo your progress. " : ""}${NO_DOUBLE}`,
     };
+  }
+
+  // Taken more than once a day: a late dose mustn't crowd the next one.
+  const order = SLOTS.map((x) => x.id);
+  const nextSlot = item.slots
+    .filter((x) => order.indexOf(x) > order.indexOf(slot))
+    .sort((a, b) => dayMinutes(times[a], wake) - dayMinutes(times[b], wake))[0];
+  if (nextSlot && t.minGapHours) {
+    const nextAt = dayMinutes(times[nextSlot], wake);
+    const gap = t.minGapHours * 60;
+    if (nextAt - earliest < gap) {
+      if (t.multiDose === "merge") {
+        return {
+          action: "catch-up",
+          suggestAt: at(nextAt),
+          latest: at(latest),
+          title: "Take it with your next dose",
+          message: `Your next ${item.name} is at ${clock(nextAt)}. ${t.lateWhy} Take both then.`,
+        };
+      }
+      if (t.multiDose === "push-next") {
+        return {
+          action: "catch-up",
+          suggestAt: at(earliest),
+          latest: at(latest),
+          title: "Take it now, push the next one",
+          message: `Keep ${t.minGapHours} h between doses: take this one now and the next at ${clock(Math.min(earliest + gap, latest + gap))} instead of ${clock(nextAt)}.`,
+        };
+      }
+      return {
+        action: "skip",
+        title: "Skip this one",
+        message: `Your next ${item.name} is at ${clock(nextAt)}, less than ${t.minGapHours} h away. Skip this dose and take the next one as usual. ${NO_DOUBLE}`,
+      };
+    }
   }
 
   if (food) {

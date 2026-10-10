@@ -8,6 +8,8 @@ import { BodyView } from "@/components/body-view";
 import { ItemEditor } from "@/components/item-editor";
 import { EvaluateSheet, JourneyView } from "@/components/journey-view";
 import { NotNowSheet } from "@/components/not-now-sheet";
+import { AiImportScreen } from "@/components/ai-setup";
+import { PrivacyScreen } from "@/components/privacy-screen";
 import { Onboarding } from "@/components/onboarding";
 import { ReminderEngine } from "@/components/reminders";
 import { SettingsScreen } from "@/components/settings-sheet";
@@ -19,6 +21,7 @@ import { clearDelivered, setupNotifications } from "@/lib/notifications";
 import { isNative } from "@/lib/platform";
 import { effectiveSlotTimes, nowInDay, planDay } from "@/lib/protocol";
 import { maybeDetectWake, maybeSyncHealth } from "@/lib/health";
+import { looksLikeSetup } from "@/lib/ai-setup";
 import { listenForShares } from "@/lib/share";
 import { remainingKeys } from "@/lib/stats";
 import { useSupplime } from "@/lib/store";
@@ -122,15 +125,18 @@ export function AppFrame() {
       onSkip: (date, slot, itemId) => {
         useSupplime.getState().logDose(itemId, slot, "skipped", date, { reason: "not-with-me" });
       },
-      onOpen: (_date, _slot, kind) =>
-        kind === "feel"
-          ? useNav.getState().go("body", "how-you-feel")
-          : useNav.getState().go("today"),
+      onOpen: (_date, slot, kind) => {
+        if (kind === "feel") return useNav.getState().go("body", "how-you-feel");
+        useNav.getState().go("today");
+        useNav.setState({ focus: slot ?? null });
+      },
     });
     const stopShares = listenForShares((text) =>
-      useSupplime.getState().profile.onboarded
-        ? useNav.getState().open({ kind: "add", text })
-        : useNav.setState({ inbox: text }),
+      !useSupplime.getState().profile.onboarded
+        ? useNav.setState({ inbox: text })
+        : looksLikeSetup(text)
+          ? useNav.getState().open({ kind: "ai-import", text })
+          : useNav.getState().open({ kind: "add", text }),
     );
     void maybeSyncHealth();
     void maybeDetectWake();
@@ -196,6 +202,8 @@ export function AppFrame() {
       )}
       {overlay?.kind === "settings" && <SettingsScreen />}
       {overlay?.kind === "history" && <HistoryScreen itemId={overlay.itemId} />}
+      {overlay?.kind === "ai-import" && <AiImportScreen text={overlay.text} />}
+      {overlay?.kind === "privacy" && <PrivacyScreen />}
       <ReminderEngine now={now} />
       <Toaster position="top-center" richColors={false} style={{ pointerEvents: "auto" }} />
     </>

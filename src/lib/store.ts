@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { CATALOG_BY_ID } from "./catalog";
 import { backfillLogs, type BackfillPattern } from "./advisor";
+import type { SetupImport } from "./ai-setup";
 import { defaultRhythm, logicalDate, nowInDay, slotTimesFromRhythm } from "./protocol";
 import { pillsFor, unitStrength } from "./knowledge";
 import { earnedBadges } from "./stats";
@@ -170,6 +171,19 @@ type SupplimeStore = PersistedData & {
   ) => void;
   /** Away from `from` to `to`: every planned dose of these items becomes "skipped, not with me". */
   markAway: (itemIds: string[], from: string, to: string) => number;
+  /**
+   * Fix many days at once (every dose that day). Days before the start move the start
+   * back. Pills left only follow days in the last two weeks (older days were other bottles).
+   */
+  fillDays: (
+    itemId: string,
+    dates: string[],
+    status: "taken" | "skipped" | "away" | null,
+  ) => number;
+  /** Bring in an AI setup block after onboarding. Returns how many items were added. */
+  importSetup: (x: SetupImport, withDay: boolean) => number;
+  /** Change when a dose was taken (HH:MM on its day). */
+  setDoseTime: (logId: string, time: string) => void;
   logEffect: (
     itemId: string,
     rating: EffectRating,
@@ -252,6 +266,28 @@ function newItem(input: NewItem): StackItem | null {
     stage: input.stage,
     arrivesOn: input.stage === "ordered" ? input.arrivesOn : undefined,
   };
+}
+
+/**
+ * A fix on a day before the item's start: you were taking it earlier than you said, so the
+ * start (and the first dose step) moves back to that day.
+ */
+function extendStart(itemId: string, date: string) {
+  const state = useSupplime.getState();
+  const item = state.stack.find((i) => i.id === itemId);
+  if (!item || date >= item.startedAt || date > appToday()) return;
+  const [first, ...rest] = item.doseHistory;
+  const history =
+    first && first.date <= item.startedAt ? [{ ...first, date }, ...rest] : item.doseHistory;
+  useSupplime.setState({
+    stack: state.stack.map((i) =>
+      i.id === itemId ? { ...i, startedAt: date, doseHistory: history } : i,
+    ),
+    profile:
+      state.profile.joinedAt && date < state.profile.joinedAt
+        ? { ...state.profile, joinedAt: date }
+        : state.profile,
+  });
 }
 
 /** Add an item plus its reconstructed history, if any. */
@@ -684,6 +720,7 @@ export const useSupplime = create<SupplimeStore>()(
         },
 
         setDoseRecord: (itemId, slot, date, status, reason, away) => {
+          if (status) extendStart(itemId, date);
           const state = get();
           const item = state.stack.find((i) => i.id === itemId);
           if (!item) return;
@@ -742,6 +779,95 @@ export const useSupplime = create<SupplimeStore>()(
             }
           }
           return n;
+        },
+
+        fillDays: (itemId, dates, status) => {
+          const sorted = [...new Set(dates)].sort();
+          if (!sorted.length) return 0;
+          if (status) extendStart(itemId, sorted[0]!);
+          const state = get();
+          const item = state.stack.find((i) => i.id === itemId);
+          if (!item) return 0;
+          const today = appToday();
+          const recent = addDays(today, -14);
+          const days = new Set(sorted.filter((d) => d <= today));
+          const isTaken = status === "taken";
+          let delta = 0;
+          let n = 0;
+          const kept = state.logs.filter((l) => {
+            if (l.itemId !== itemId || !days.has(l.date)) return true;
+            if (l.status === "taken" && l.date >= recent) delta += 1;
+            return false;
+          });
+          const added: DoseLog[] = [];
+          if (status) {
+            for (const date of days) {
+              for (const slot of item.slots) {
+                added.push({
+                  id: uid(),
+                  itemId,
+                  date,
+                  slot,
+                  status: isTaken ? "taken" : "skipped",
+                  at: new Date().toISOString(),
+                  reason: isTaken ? undefined : status === "away" ? "not-with-me" : "forgot",
+                  edited: date < today ? true : undefined,
+                  away: status === "away" ? true : undefined,
+                });
+                if (isTaken && date >= recent) delta -= 1;
+                n++;
+              }
+            }
+          }
+          set({
+            logs: [...kept, ...added],
+            stack: delta
+              ? state.stack.map((i) =>
+                  i.id === itemId
+                    ? {
+                        ...i,
+                        servingsRemaining: Math.max(
+                          0,
+                          i.servingsRemaining + delta * i.servingsPerDose,
+                        ),
+                      }
+                    : i,
+                )
+              : state.stack,
+          });
+          return n || days.size;
+        },
+
+        importSetup: (x, withDay) => {
+          let n = 0;
+          for (const item of x.items) if (get().addItem(item)) n++;
+          if (withDay) {
+            const p = get().profile;
+            const rhythm = { ...p.rhythm, ...x.rhythm };
+            set({
+              profile: {
+                ...p,
+                rhythm,
+                habits: { ...p.habits, ...x.habits },
+                slotTimes: slotTimesFromRhythm(rhythm),
+              },
+            });
+          }
+          return n;
+        },
+
+        setDoseTime: (logId, time) => {
+          const logs = get().logs.map((l) => {
+            if (l.id !== logId) return l;
+            const [h, m] = time.split(":").map(Number);
+            const at = new Date(l.at);
+            const base = Number.isNaN(at.getTime()) ? new Date() : at;
+            base.setHours(h ?? 0, m ?? 0, 0, 0);
+            // Never in the future: 11:50 pm typed after midnight means last night.
+            if (base.getTime() > Date.now()) base.setDate(base.getDate() - 1);
+            return { ...l, at: base.toISOString() };
+          });
+          set({ logs });
         },
 
         logEffect: (itemId, rating, opts) => {

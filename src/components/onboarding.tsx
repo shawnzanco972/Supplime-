@@ -1,17 +1,17 @@
 import { Wordmark } from "@/components/app-shell";
-import { Clock, MessageCircle, ShieldCheck, Watch, X } from "lucide-react";
+import { Clock, ShieldCheck, Watch, X } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { Chip, HabitsForm, RhythmForm } from "@/components/fields";
 import { ItemSetupForm, type SetupSeed } from "@/components/item-setup";
 import { BrandBadge, ProductPicker, iconFor } from "@/components/product-picker";
+import { AiSetupSteps } from "@/components/ai-setup";
 import { HealthConnect } from "@/components/health-connect";
+import { PrivacyScreen } from "@/components/privacy-screen";
 import { enableNotifications } from "@/components/reminders";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { parseSetup, setupPrompt, type SetupImport } from "@/lib/ai-setup";
-import { shareToAssistant } from "@/lib/coach";
+import { parseSetup, type SetupImport } from "@/lib/ai-setup";
 import { useNav } from "@/lib/nav";
 import { CATALOG_BY_ID } from "@/lib/catalog";
 import { profileFor } from "@/lib/knowledge";
@@ -42,6 +42,9 @@ export function Onboarding() {
   const [adding, setAdding] = useState<null | "pick" | SetupSeed>(null);
   const [notify, setNotify] = useState(false);
   const [ai, setAi] = useState(false);
+  const [intro, setIntro] = useState<"welcome" | "start">("welcome");
+  const [taking, setTaking] = useState(true);
+  const [privacy, setPrivacy] = useState(false);
   const today = logicalDate(new Date(), rhythm);
 
   /** Fill every step from an AI setup block; you still walk through and check each one. */
@@ -59,11 +62,14 @@ export function Onboarding() {
     }
     setAi(false);
     setStep(1);
-    toast(`Filled in from your AI${x.items.length ? `: ${x.items.length} supplements` : ""}`, {
-      description: x.custom.length
-        ? `No guide yet for ${x.custom.join(", ")}: added with your numbers. Check each step.`
-        : "Check each step and change anything that's off.",
-    });
+    toast(
+      `Filled in from your AI${x.items.length ? `: ${x.items.length} supplement${x.items.length === 1 ? "" : "s"}` : ""}`,
+      {
+        description: x.custom.length
+          ? `No guide yet for ${x.custom.join(", ")}: added with your numbers. Check each step.`
+          : "Check each step and change anything that's off.",
+      },
+    );
   };
 
   // The answer can also arrive by sharing it from the Claude / Gemini app to Supplime.
@@ -105,7 +111,7 @@ export function Onboarding() {
         )}
       </div>
 
-      {step === 0 && !ai && (
+      {step === 0 && intro === "welcome" && !ai && (
         <Step title="Take the right things at the right time — and know if they work.">
           <p className="max-w-sm text-muted-foreground">
             A private journey for your supplements: reminders that fit your day, honest timelines
@@ -124,19 +130,65 @@ export function Onboarding() {
               No account, no cloud. Back it up whenever you like.
             </Feature>
           </ul>
-          <div className="mt-auto space-y-2 pt-8">
-            <Button className="w-full" size="lg" onClick={() => setStep(1)}>
-              Begin
-            </Button>
-            <Button variant="outline" className="w-full" size="lg" onClick={() => setAi(true)}>
-              <MessageCircle className="size-4" />
-              Set up with my AI (Claude, Gemini…)
+          {nav(null, () => setIntro("start"), "Begin")}
+        </Step>
+      )}
+
+      {step === 0 && intro === "start" && !ai && (
+        <Step
+          title="Already taking supplements?"
+          hint="Either way works. You can add or change anything later."
+        >
+          <div className="space-y-2">
+            <ChoiceCard
+              title="Not yet"
+              text="Set up your day, then pick something to start with."
+              onClick={() => {
+                setTaking(false);
+                setStep(1);
+              }}
+            />
+            <ChoiceCard
+              title="Yes, I'll add them here"
+              text="Pick the type, brand and bottle. About a minute each."
+              onClick={() => {
+                setTaking(true);
+                setStep(1);
+              }}
+            />
+          </div>
+          <button
+            type="button"
+            className="mt-4 min-h-11 text-left text-sm text-muted-foreground"
+            onClick={() => setAi(true)}
+          >
+            Taking a lot?{" "}
+            <span className="underline underline-offset-2">Let your AI app ask you</span> instead.
+            Optional, and you can do it later from Settings.
+          </button>
+          <div className="mt-auto pt-8">
+            <Button variant="ghost" onClick={() => setIntro("welcome")}>
+              Back
             </Button>
           </div>
         </Step>
       )}
 
-      {ai && <AiSetup today={today} onImport={applySetup} onBack={() => setAi(false)} />}
+      {ai && (
+        <Step
+          title="Let your AI ask you"
+          hint="It asks about 4 short questions about your day and what you take, then writes a block for Supplime. You'll still check every step."
+        >
+          <AiSetupSteps today={today} submitLabel="Fill in my setup" onImport={applySetup} />
+          <button
+            type="button"
+            className="mt-4 min-h-11 text-sm text-muted-foreground underline"
+            onClick={() => setAi(false)}
+          >
+            Back
+          </button>
+        </Step>
+      )}
 
       {step === 1 && !ai && (
         <Step
@@ -204,7 +256,7 @@ export function Onboarding() {
 
       {step === 4 && adding === null && !ai && (
         <Step
-          title="What are you taking now?"
+          title={taking ? "What are you taking now?" : "Anything to start with?"}
           hint="Find the type, then the brand and bottle — strength, ingredients and directions fill in. Tell Supplime since when, and your timeline starts on the right day."
         >
           {picked.length > 0 && (
@@ -226,13 +278,13 @@ export function Onboarding() {
           >
             + {picked.length ? "Add another" : "Add a supplement"}
           </Button>
-          {picked.length === 0 && (
+          {picked.length === 0 && taking && (
             <button
               type="button"
               className="mt-2 min-h-11 w-full text-sm text-muted-foreground underline"
               onClick={() => setAi(true)}
             >
-              Or let your AI ask you and paste its answer
+              Or import them from your AI app
             </button>
           )}
           {nav(
@@ -316,6 +368,13 @@ export function Onboarding() {
             <HealthConnect />
           </div>
           <p className="mt-6 text-xs text-muted-foreground">
+            Your data stays on this phone.{" "}
+            <button type="button" className="underline" onClick={() => setPrivacy(true)}>
+              Privacy policy
+            </button>
+            {privacy && <PrivacyScreen onClose={() => setPrivacy(false)} />}
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">
             Personal tracker, not medical advice. Timelines are typical ranges, not promises.
           </p>
           {nav(
@@ -338,6 +397,27 @@ export function Onboarding() {
   );
 }
 
+function ChoiceCard({
+  title,
+  text,
+  onClick,
+}: {
+  title: string;
+  text: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="w-full rounded-2xl bg-card px-4 py-4 text-left shadow-[var(--shadow-border)] active:bg-secondary"
+    >
+      <p className="font-medium">{title}</p>
+      <p className="mt-0.5 text-sm text-muted-foreground">{text}</p>
+    </button>
+  );
+}
+
 function Feature({
   icon: Icon,
   title,
@@ -357,85 +437,6 @@ function Feature({
         <span className="text-muted-foreground">{children}</span>
       </span>
     </li>
-  );
-}
-
-/** Hand a short interview to the person's own AI app, then read its answer back. */
-function AiSetup({
-  today,
-  onImport,
-  onBack,
-}: {
-  today: string;
-  onImport: (x: SetupImport) => void;
-  onBack: () => void;
-}) {
-  const [text, setText] = useState("");
-  const [sent, setSent] = useState(false);
-  const [error, setError] = useState("");
-  return (
-    <Step
-      title="Let your AI ask you"
-      hint="Your assistant asks a few quick questions about your day and what you take, then writes a block for Supplime. You'll still check every step."
-    >
-      <ol className="space-y-4 text-sm">
-        <li>
-          <p className="font-medium">1. Send the questions to Claude or Gemini</p>
-          <Button
-            className="mt-2 w-full"
-            variant={sent ? "outline" : "default"}
-            onClick={async () => {
-              const how = await shareToAssistant(setupPrompt(today));
-              setSent(true);
-              if (how === "copied") toast("Copied. Paste it into Claude or Gemini.");
-            }}
-          >
-            <MessageCircle className="size-4" />
-            {sent ? "Send again" : "Open my AI app"}
-          </Button>
-        </li>
-        <li>
-          <p className="font-medium">2. Answer its questions</p>
-          <p className="text-muted-foreground">
-            About 2 minutes. Have your bottles nearby for the doses.
-          </p>
-        </li>
-        <li>
-          <p className="font-medium">3. Copy its final answer and paste it here</p>
-          <p className="text-muted-foreground">Or share it straight to Supplime.</p>
-          <Textarea
-            className="mt-2 min-h-32 font-mono text-xs"
-            value={text}
-            onChange={(e) => {
-              setText(e.target.value);
-              setError("");
-            }}
-            placeholder='{"supplime": 1, …}'
-          />
-          {error && <p className="mt-1 text-sm text-warn">{error}</p>}
-        </li>
-      </ol>
-      <div className="mt-auto flex gap-3 pt-8">
-        <Button variant="ghost" onClick={onBack}>
-          Back
-        </Button>
-        <Button
-          className="flex-1"
-          size="lg"
-          disabled={!text.trim()}
-          onClick={() => {
-            const parsed = parseSetup(text, today);
-            if (parsed) onImport(parsed);
-            else
-              setError(
-                "Couldn't read that. Copy the whole last answer, including the part in { }.",
-              );
-          }}
-        >
-          Fill in my setup
-        </Button>
-      </div>
-    </Step>
   );
 }
 
